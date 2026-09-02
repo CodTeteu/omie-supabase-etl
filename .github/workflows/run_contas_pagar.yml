@@ -1,0 +1,58 @@
+name: Executar Apenas Contas a Pagar ETL
+
+on:
+  workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
+
+jobs:
+  run-cp-etl:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # Se uma empresa falhar, as outras continuam rodando
+      max-parallel: 6  # Máximo 6 empresas ao mesmo tempo para não sobrecarregar
+      matrix:
+        empresa:
+          - "ALIANÇA LEGAL"
+          - "AUDIT TECNOLOGIA"
+          - "BRAGA E MONTEIRO"
+          - "E-FISCAL OPERACIONAL"
+          - "FERREIRA & MONTEIRO"
+          - "GS EDUCAÇÃO"
+          - "SF CONSULTORIA"
+          - "SPACE W"
+          - "STUDIO ADMINISTRAÇÃO"
+          - "STUDIO AGRONEGÓCIOS"
+          - "STUDIO BANK"
+          - "STUDIO BROKERS"
+          - "STUDIO CONTABILIDADE LTDA"
+          - "STUDIO ENERGY"
+          - "STUDIO FACTORING"
+          - "STUDIO FISCAL"
+          - "STUDIO GROWTH"
+          - "STUDIO OPERACIONAL"
+          - "STUDIO OPERACIONAL 01"
+          - "STUDIO PAR"
+          - "STUDIO FAMILY"
+          - "STUDIO SBS STORE"
+          - "STUDIO STORE"
+          - "STUDIO VAREJO"
+
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: "Executando CP ETL: ${{ matrix.empresa }}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python contas_pagar_etl.py "${{ matrix.empresa }}"

@@ -1,0 +1,11 @@
+# Credenciais - NUNCA commitar
+.env
+env
+*.env
+.omie-etl.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

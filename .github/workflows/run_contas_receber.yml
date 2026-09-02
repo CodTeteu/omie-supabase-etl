@@ -1,0 +1,29 @@
+name: Run Contas a Receber ETL
+
+on:
+  workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
+
+jobs:
+  run-contas-receber:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Executando o Script de Contas a Receber
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python contas_receber_etl.py

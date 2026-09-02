@@ -1,0 +1,63 @@
+name: Sincronizar Departamentos Isolado
+
+on:
+  schedule:
+    # Semanal, aos domingos. 07:40 UTC dom = 04:40 dom em Brasilia.
+    # Roda ANTES da rotina diaria (09:00 UTC) porque estas tabelas sao
+    # dimensoes usadas nos JOINs das views. leva ~8 min
+    - cron: '40 7 * * 0'
+  workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
+
+jobs:
+  run-dept-etl:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        empresa:
+          - "ALIANÇA LEGAL"
+          - "AUDIT TECNOLOGIA"
+          - "BRAGA E MONTEIRO"
+          - "E-FISCAL OPERACIONAL"
+          - "FERREIRA & MONTEIRO"
+          - "GS EDUCAÇÃO"
+          - "SF CONSULTORIA"
+          - "SPACE W"
+          - "STUDIO ADMINISTRAÇÃO"
+          - "STUDIO AGRONEGÓCIOS"
+          - "STUDIO BANK"
+          - "STUDIO BROKERS"
+          - "STUDIO CONTABILIDADE LTDA"
+          - "STUDIO ENERGY"
+          - "STUDIO FACTORING"
+          - "STUDIO FISCAL"
+          - "STUDIO GROWTH"
+          - "STUDIO OPERACIONAL"
+          - "STUDIO OPERACIONAL 01"
+          - "STUDIO PAR"
+          - "STUDIO FAMILY"
+          - "STUDIO SBS STORE"
+          - "STUDIO STORE"
+          - "STUDIO VAREJO"
+          
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: "Executando Script de Departamentos: ${{ matrix.empresa }}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python sync_departamentos.py "${{ matrix.empresa }}"

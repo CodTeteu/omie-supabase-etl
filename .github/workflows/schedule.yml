@@ -1,0 +1,63 @@
+name: Rotina Noturna Omie ETL
+
+on:
+  schedule:
+    # ATENCAO: o cron do GitHub Actions e SEMPRE em UTC. O Brasil e UTC-3
+    # (sem horario de verao desde 2019), entao subtraia 3h para saber o
+    # horario de Brasilia.
+    #
+    # 09:00 UTC = 06:00 da manha no horario de Brasilia.
+    - cron: '0 9 * * *'
+    #
+    # Se preferir 06:00 UTC (= 03:00 da manha em Brasilia), troque a linha
+    # acima por:  - cron: '0 6 * * *'
+
+  workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+
+
+      - name: Executando o Script de Contas a Receber
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python contas_receber_etl.py
+
+      - name: Executando o Script de Conta Corrente
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python conta_corrente_etl.py
+
+      - name: Executando o Script de Movimentos Financeiros
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python movimentos_financeiros_etl.py
+
+      - name: Executando o Script de Contas a Pagar
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        run: python contas_pagar_etl.py

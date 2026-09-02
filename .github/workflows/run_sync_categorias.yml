@@ -1,0 +1,35 @@
+name: Rotina Rapida - Categorias
+
+on:
+  schedule:
+    # Semanal, aos domingos. 08:00 UTC dom = 05:00 dom em Brasilia.
+    # Roda ANTES da rotina diaria (09:00 UTC) porque estas tabelas sao
+    # dimensoes usadas nos JOINs das views. leva ~2 min
+    - cron: '0 8 * * 0'
+  workflow_dispatch:
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Sincronizar Categorias
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+      run: |
+        python -u sync_categorias.py
