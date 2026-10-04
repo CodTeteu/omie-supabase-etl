@@ -9,3 +9,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Cache local da CLI do Supabase (criado ao rodar `supabase` nesta pasta)
+supabase/.temp/
