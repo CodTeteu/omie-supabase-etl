@@ -1,0 +1,36 @@
+name: Provisionar Banco (schema completo)
+
+# Recria tabelas, chaves e views a partir de provisionar_banco_completo.sql.
+# Idempotente: pode rodar mais de uma vez sem estragar nada.
+#
+# Use ao criar um projeto Supabase novo. Depois, rode a "Rotina Noturna Omie
+# ETL" manualmente uma vez para preencher os dados.
+#
+# Requer o secret DATABASE_URL com a connection string do "Session pooler"
+# (a conexao direta usa so IPv6, que os runners do GitHub nao suportam).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  provisionar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install psycopg2-binary
+
+      - name: Aplicando o schema e conferindo os 25 objetos
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python provisionar.py

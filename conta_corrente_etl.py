@@ -15,6 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
+from gravacao import aviso, encerrar, substituir_dados_empresa
 
 def converter_data(data_br):
     if not data_br:
@@ -124,34 +125,16 @@ def rodar_rotina_cc():
         lancamentos_cc = puxar_conta_corrente(empresa)
         
         if lancamentos_cc is None:
-            print(f"⚠️ ERRO DETECTADO NA EXTRAÇÃO DA {empresa['empresa']}.")
-            print("PULANDO deleção e inserção para preservar os dados antigos no banco de dados!")
-            continue # Pula a deleção e inserção desta empresa
+            aviso(f"Conta Corrente / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            continue
             
         if lancamentos_cc:
-            try:
-                # 1. Apaga apenas os dados DAQUELA EMPRESA
-                print(f"Limpando base de dados antiga de conta_corrente da empresa {empresa['empresa']}...")
-                requests.delete(
-                    f"{SUPABASE_URL}/rest/v1/conta_corrente", 
-                    headers=headers_supabase, 
-                    params={"empresa_cnpj": f"eq.{empresa['cnpj']}"}
-                )
-                
-                # 2. Insere os novos dados daquela empresa
-                tamanho_lote = 500
-                for i in range(0, len(lancamentos_cc), tamanho_lote):
-                    lote = lancamentos_cc[i:i + tamanho_lote]
-                    resp = requests.post(f"{SUPABASE_URL}/rest/v1/conta_corrente", json=lote, headers=headers_supabase, timeout=60)
-                    if resp.status_code not in (200, 201):
-                         print(f"❌ Erro na API do Supabase (Conta Corrente): {resp.text}")
-                print(f"✅ Inseridos {len(lancamentos_cc)} Lançamentos CC para {empresa['empresa']}")
-            except Exception as e:
-                print(f"❌ Erro ao enviar Conta Corrente da empresa {empresa['empresa']}: {e}")
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "conta_corrente", lancamentos_cc, empresa, "Conta Corrente")
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
 
     print("\nFIM DA ROTINA DE CONTA CORRENTE!")
+    encerrar("Conta Corrente")
 
 if __name__ == "__main__":
     rodar_rotina_cc()

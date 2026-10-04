@@ -16,6 +16,7 @@ SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 # Lista de Empresas
 from empresas import EMPRESAS
+from gravacao import aviso, encerrar, falha
 
 def converter_data(data_br):
     if not data_br:
@@ -235,6 +236,8 @@ def enviar_para_supabase(registros, empresa_nome):
             except Exception as e:
                 print(f"  ❌ Exceção Supabase (lote {i}-{i+len(lote)}): {e}. Tentativa {tentativa+1}/5...")
                 time.sleep(3)
+        else:
+            falha(f"Contas a Pagar / {empresa_nome}: lote {i}-{i+len(lote)} nao gravado apos 5 tentativas")
     
     return total_enviado
 
@@ -268,14 +271,18 @@ def rodar_rotina_cp():
         
         if contas_pagar:
             enviados = enviar_para_supabase(contas_pagar, empresa['empresa'])
-            print(f"✅ {enviados} registros salvos via UPSERT para {empresa['empresa']}")
+            if enviados == len(contas_pagar):
+                print(f"✅ {enviados} registros salvos via UPSERT para {empresa['empresa']}")
+            else:
+                print(f"⚠️ Apenas {enviados} de {len(contas_pagar)} registros salvos para {empresa['empresa']}")
             total_geral += enviados
         else:
-            print(f"ℹ️ Nenhum registro encontrado para {empresa['empresa']}.")
+            aviso(f"Contas a Pagar / {empresa['empresa']}: nenhum registro retornado pelo Omie (sem titulos ou falha de acesso). Dados antigos preservados.")
     
     print(f"\n{'='*60}")
     print(f"FIM! Total geral: {total_geral} registros processados.")
     print(f"{'='*60}")
+    encerrar("Contas a Pagar")
 
 if __name__ == "__main__":
     rodar_rotina_cp()

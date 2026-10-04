@@ -17,6 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
+from gravacao import aviso, encerrar, falha
 
 def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_tentativas=10):
     """Tenta baixar uma página específica da Omie com retries."""
@@ -167,27 +168,35 @@ def run_sync_clientes(empresa_alvo=None):
         clientes = puxar_clientes(empresa)
         
         if clientes is None:
-            print(f"   [!] Erro crítico ao buscar clientes da {empresa['empresa']}. Pulando empresa.")
+            aviso(f"Clientes / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
             continue
             
         if clientes:
             print(f"   ✓ {len(clientes)} clientes obtidos da Omie. Enviando ao Supabase...")
+            gravados = 0
             for i in range(0, len(clientes), 100):
                 lote = clientes[i:i+100]
                 for tentativa in range(5):
                     try:
-                        response = supabase.table('clientes_grupo').upsert(
+                        supabase.table('clientes_grupo').upsert(
                             lote, on_conflict="codigo_cliente_omie, empresa_cnpj"
                         ).execute()
+                        gravados += len(lote)
                         break
                     except Exception as e:
                         print(f"     [!] Erro ao salvar lote {i} a {i+len(lote)}: {e}. Retentando ({tentativa+1}/5)...")
                         time.sleep(5)
-            print(f"   ✓ Clientes da {empresa['empresa']} sincronizados com sucesso!")
+                else:
+                    falha(f"Clientes / {empresa['empresa']}: lote {i} a {i+len(lote)} nao gravado apos 5 tentativas")
+            if gravados == len(clientes):
+                print(f"   ✓ Clientes da {empresa['empresa']} sincronizados com sucesso!")
+            else:
+                print(f"   ⚠️ Apenas {gravados} de {len(clientes)} clientes gravados para {empresa['empresa']}")
         else:
             print(f"   [!] Nenhum cliente encontrado na Omie para {empresa['empresa']}.")
             
     print("\n=== SINCRONIZAÇÃO CONCLUÍDA ===")
+    encerrar("Clientes")
 
 
 if __name__ == "__main__":

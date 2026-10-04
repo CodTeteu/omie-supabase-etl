@@ -15,6 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
+from gravacao import aviso, encerrar, substituir_dados_empresa
 
 def converter_data(data_br):
     if not data_br:
@@ -101,6 +102,29 @@ def puxar_movimentos_financeiros(empresa_config):
             
     return todos_registros
 
+def deduplicar_por_titulo(movimentos, empresa):
+    """
+    Um titulo pode vir em mais de um movimento (ex.: duas notas fiscais no
+    mesmo titulo). A tabela guarda um registro por titulo, e um lote com o
+    mesmo titulo repetido e recusado inteiro pelo Supabase (erro 21000:
+    "ON CONFLICT DO UPDATE command cannot affect row a second time").
+    Mantem o ultimo de cada titulo e avisa quando as repeticoes divergem em
+    algum campo gravado.
+    """
+    unicos, divergentes = {}, 0
+    for m in movimentos:
+        chave = (m["id_movimento"], m["empresa_cnpj"])
+        if chave in unicos and unicos[chave] != m:
+            divergentes += 1
+        unicos[chave] = m
+    repetidos = len(movimentos) - len(unicos)
+    if divergentes:
+        aviso(f"Movimentos Financeiros / {empresa['empresa']}: {divergentes} titulo(s) com movimentos divergentes; mantido o ultimo de cada")
+    elif repetidos:
+        print(f"   {repetidos} movimento(s) repetido(s) por titulo, identicos apos o mapeamento - consolidados")
+    return list(unicos.values())
+
+
 def rodar_rotina_mf():
     print("Iniciando rotina de Movimentos Financeiros (Multi-Tenant Omie -> Supabase)...")
     
@@ -118,34 +142,17 @@ def rodar_rotina_mf():
         movimentos = puxar_movimentos_financeiros(empresa)
         
         if movimentos is None:
-            print(f"⚠️ ERRO DETECTADO NA EXTRAÇÃO DA {empresa['empresa']}.")
-            print("PULANDO deleção e inserção para preservar os dados antigos no banco de dados!")
-            continue # Pula a deleção e vai pra próxima empresa
+            aviso(f"Movimentos Financeiros / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            continue
             
         if movimentos:
-            try:
-                # 1. Apaga apenas os dados DAQUELA EMPRESA
-                print(f"Limpando base de dados antiga de movimentos_financeiros da empresa {empresa['empresa']}...")
-                requests.delete(
-                    f"{SUPABASE_URL}/rest/v1/movimentos_financeiros", 
-                    headers=headers_supabase, 
-                    params={"empresa_cnpj": f"eq.{empresa['cnpj']}"}
-                )
-                
-                # 2. Insere os novos dados daquela empresa
-                tamanho_lote = 500
-                for i in range(0, len(movimentos), tamanho_lote):
-                    lote = movimentos[i:i + tamanho_lote]
-                    resp = requests.post(f"{SUPABASE_URL}/rest/v1/movimentos_financeiros", json=lote, headers=headers_supabase, timeout=60)
-                    if resp.status_code not in (200, 201):
-                         print(f"❌ Erro na API do Supabase (Movimentos Financeiros): {resp.text}")
-                print(f"✅ Inseridas {len(movimentos)} Movimentos Financeiros para {empresa['empresa']}")
-            except Exception as e:
-                print(f"❌ Erro ao enviar Movimentos Financeiros da empresa {empresa['empresa']}: {e}")
+            movimentos = deduplicar_por_titulo(movimentos, empresa)
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "movimentos_financeiros", movimentos, empresa, "Movimentos Financeiros")
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
             
     print("\nFIM DA ROTINA DE MOVIMENTOS FINANCEIROS!")
+    encerrar("Movimentos Financeiros")
 
 if __name__ == "__main__":
     rodar_rotina_mf()

@@ -15,7 +15,19 @@ on:
 jobs:
   run-etl:
     runs-on: ubuntu-latest
-    
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+
+    # Qualquer gravacao que falhe deixa a execucao VERMELHA e o GitHub avisa
+    # por email. Antes, os erros eram so impressos no log: de 16/09 a
+    # 04/10/2026 o banco nao existia e todas as execucoes ficaram verdes.
+    #
+    # Os 4 passos de ETL rodam mesmo que um anterior falhe (um problema numa
+    # tabela nao impede as outras), mas so se o banco responder no inicio.
+
     steps:
       - name: Checando o código do repositório
         uses: actions/checkout@v3
@@ -24,38 +36,32 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+
       - name: Instalando dependências
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
 
+      - name: Checando se o banco responde
+        id: banco
+        run: python checar_saude.py --antes
 
       - name: Executando o Script de Contas a Receber
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
         run: python contas_receber_etl.py
 
       - name: Executando o Script de Conta Corrente
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
         run: python conta_corrente_etl.py
 
       - name: Executando o Script de Movimentos Financeiros
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
         run: python movimentos_financeiros_etl.py
 
       - name: Executando o Script de Contas a Pagar
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
         run: python contas_pagar_etl.py
+
+      - name: Conferindo os dados gravados
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: python checar_saude.py

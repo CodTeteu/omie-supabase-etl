@@ -17,6 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
+from gravacao import aviso, encerrar, falha
 
 def formatar_registro(cat, empresa_config):
     return {
@@ -39,7 +40,7 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
             
             # BLOQUEIO DE CHAVE INVÁLIDA
             if "chave de acesso est" in response.text or "aplicativo est" in response.text or response.status_code == 500:
-                print(f"    ❌ ERRO CRÍTICO DA OMIE: Chave da empresa {empresa_config['empresa']} inválida ou suspensa. Pulando empresa.")
+                aviso(f"Categorias / {empresa_config['empresa']}: chave do Omie invalida ou suspensa. Empresa pulada, dados antigos preservados.")
                 return False, [], 0, True # O 4º parametro avisa que é bloqueio definitivo
                 
             if response.status_code == 200:
@@ -138,7 +139,7 @@ def deletar_categorias_empresa(empresa_cnpj):
         res = supabase.table("categorias_omie").delete().eq("empresa_cnpj", empresa_cnpj).execute()
         return True
     except Exception as e:
-        print(f"  ❌ Erro ao deletar categorias: {e}")
+        falha(f"Categorias / CNPJ {empresa_cnpj}: nao foi possivel limpar os dados antigos ({e})")
         return False
 
 def rodar_rotina_categorias():
@@ -149,7 +150,8 @@ def rodar_rotina_categorias():
             regs = puxar_categorias_isolado(emp)
             if regs:
                 print(f"  Total resgatado: {len(regs)}")
-                deletar_categorias_empresa(emp["cnpj"])
+                if not deletar_categorias_empresa(emp["cnpj"]):
+                    continue  # limpeza falhou: nao grava por cima, dados antigos ficam intactos
                 
                 LOTE = 500
                 for i in range(0, len(regs), LOTE):
@@ -158,12 +160,13 @@ def rodar_rotina_categorias():
                         res = supabase.table("categorias_omie").upsert(lote_atual).execute()
                         print(f"  Lote de {len(lote_atual)} inserido no banco.")
                     except Exception as err_insert:
-                        print(f"  ❌ Erro ao inserir lote: {err_insert}")
+                        falha(f"Categorias / {emp['empresa']}: lote nao gravado ({err_insert})")
             else:
                 print("  Nenhum registro para subir.")
         except Exception as err:
-            print(f"  ❌ Erro geral para a empresa {emp['empresa']}: {err}")
+            falha(f"Categorias / {emp['empresa']}: erro inesperado ({err})")
     print("\\n=== Rotina Finalizada ===")
+    encerrar("Categorias")
 
 if __name__ == "__main__":
     rodar_rotina_categorias()

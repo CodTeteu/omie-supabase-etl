@@ -17,6 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
+from gravacao import aviso, encerrar, falha
 
 def formatar_registro(dept, empresa_config):
     return {
@@ -146,7 +147,7 @@ def main(empresa_alvo=None):
         departamentos = puxar_departamentos_isolado(empresa)
         
         if departamentos is None:
-            print(f"   [!] Erro crítico ao buscar departamentos da {empresa['empresa']}. Pulando empresa.")
+            aviso(f"Departamentos / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
             continue
             
         if len(departamentos) == 0:
@@ -165,6 +166,7 @@ def main(empresa_alvo=None):
                 }
                 
                 # Insere em lotes
+                gravados = 0
                 for i in range(0, len(departamentos), 500):
                     lote = departamentos[i:i+500]
                     for tentativa in range(10):
@@ -172,15 +174,22 @@ def main(empresa_alvo=None):
                             resp = requests.post(f"{SUPABASE_URL}/rest/v1/departamentos_omie", json=lote, headers=headers_supabase, timeout=60)
                             if resp.status_code not in (200, 201):
                                 raise Exception(f"Erro na API do Supabase: {resp.text}")
+                            gravados += len(lote)
                             break
                         except Exception as e:
                             print(f"     [!] Erro ao salvar lote {i} a {i+len(lote)}: {e}. Retentando ({tentativa+1}/10)...")
                             time.sleep(5)
-                print(f"   ✅ Departamentos sincronizados com sucesso!")
+                    else:
+                        falha(f"Departamentos / {empresa['empresa']}: lote {i} a {i+len(lote)} nao gravado apos 10 tentativas")
+                if gravados == len(departamentos):
+                    print(f"   ✅ Departamentos sincronizados com sucesso!")
+                else:
+                    print(f"   ⚠️ Apenas {gravados} de {len(departamentos)} departamentos gravados para {empresa['empresa']}")
             except Exception as e:
-                print(f"   [X] Erro de rede ao se comunicar com o Supabase: {e}")
+                falha(f"Departamentos / {empresa['empresa']}: erro de rede ao se comunicar com o Supabase ({e})")
 
     print("\n=== SINCRONIZAÇÃO CONCLUÍDA ===")
+    encerrar("Departamentos")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

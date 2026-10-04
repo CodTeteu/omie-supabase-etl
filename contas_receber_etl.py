@@ -15,6 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
+from gravacao import aviso, encerrar, substituir_dados_empresa
 
 def converter_data(data_br):
     if not data_br:
@@ -112,34 +113,16 @@ def rodar_rotina_cr():
         contas = puxar_contas_receber(empresa)
         
         if contas is None:
-            print(f"⚠️ ERRO DETECTADO NA EXTRAÇÃO DA {empresa['empresa']}.")
-            print("PULANDO deleção e inserção para preservar os dados antigos no banco de dados!")
-            continue # Pula a deleção e inserção desta empresa
+            aviso(f"Contas a Receber / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            continue
             
         if contas:
-            try:
-                # 1. Apaga apenas os dados DAQUELA EMPRESA
-                print(f"Limpando base de dados antiga de contas_receber_grupo da empresa {empresa['empresa']}...")
-                requests.delete(
-                    f"{SUPABASE_URL}/rest/v1/contas_receber_grupo", 
-                    headers=headers_supabase, 
-                    params={"empresa_cnpj": f"eq.{empresa['cnpj']}"}
-                )
-                
-                # 2. Insere os novos dados daquela empresa
-                tamanho_lote = 500
-                for i in range(0, len(contas), tamanho_lote):
-                    lote = contas[i:i + tamanho_lote]
-                    resp = requests.post(f"{SUPABASE_URL}/rest/v1/contas_receber_grupo", json=lote, headers=headers_supabase, timeout=60)
-                    if resp.status_code not in (200, 201):
-                         print(f"❌ Erro na API do Supabase (Contas): {resp.text}")
-                print(f"✅ Inseridas {len(contas)} contas a receber para {empresa['empresa']}")
-            except Exception as e:
-                print(f"❌ Erro ao enviar Contas a Receber da empresa {empresa['empresa']}: {e}")
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "contas_receber_grupo", contas, empresa, "Contas a Receber")
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
 
     print("\nFIM DA ROTINA DE CONTAS A RECEBER!")
+    encerrar("Contas a Receber")
 
 if __name__ == "__main__":
     rodar_rotina_cr()
