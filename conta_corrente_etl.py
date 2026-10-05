@@ -16,6 +16,7 @@ SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
 from gravacao import empresa_fora, encerrar, substituir_dados_empresa
+import omie_api
 
 def converter_data(data_br):
     if not data_br:
@@ -96,11 +97,20 @@ def puxar_conta_corrente(empresa_config):
                         sucesso_na_pagina = True
                         break
                 else:
-                    print(f"Tentativa {tentativa+1} falhou na página {pagina} com status {response.status_code}. Retentando em 5s...")
-                    time.sleep(5)
+                    tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
+                    if tipo == omie_api.PERMANENTE:
+                        print(f"Erro permanente do Omie na página {pagina} (HTTP {response.status_code}), sem repetir: {response.text[:150]}")
+                        return None
+                    if tipo == omie_api.VAZIO:
+                        tem_mais = False
+                        sucesso_na_pagina = True
+                        break
+                    print(f"Tentativa {tentativa+1} falhou na página {pagina} com status {response.status_code}. Retentando em {espera}s...")
+                    time.sleep(espera)
             except Exception as e:
-                print(f"Tentativa {tentativa+1} falhou na página {pagina} com erro: {e}. Retentando em 5s...")
-                time.sleep(5)
+                espera = omie_api.espera_transitoria(tentativa)
+                print(f"Tentativa {tentativa+1} falhou na página {pagina} com erro: {e}. Retentando em {espera}s...")
+                time.sleep(espera)
                 
         if not sucesso_na_pagina:
             print(f"FALHA CRÍTICA: Não foi possível baixar a página {pagina} da Omie após 3 tentativas.")

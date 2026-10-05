@@ -17,6 +17,7 @@ SUPABASE_URL = SUPABASE_URL.rstrip('/')
 # Lista de Empresas
 from empresas import EMPRESAS
 from gravacao import empresa_fora, encerrar, falha
+import omie_api
 
 def converter_data(data_br):
     if not data_br:
@@ -100,7 +101,7 @@ def formatar_registro(conta, empresa_config):
 # CAMADA 1: ZOOM PROGRESSIVO - Recuperação registro a registro
 # ---------------------------------------------------------------------------
 
-def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
+def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
     """Tenta baixar uma página específica da Omie com retries."""
     body = {
         "call": "ListarContasPagar",
@@ -119,11 +120,19 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
                     registros = data["conta_pagar_cadastro"]
                 return True, registros, total_paginas
             else:
-                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em 5s...")
-                time.sleep(5)
+                tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
+                if tipo == omie_api.PERMANENTE:
+                    raise omie_api.ErroPermanente(f"HTTP {response.status_code}: {response.text[:150]}")
+                if tipo == omie_api.VAZIO:
+                    return True, [], 1
+                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s...")
+                time.sleep(espera)
+        except omie_api.ErroPermanente:
+            raise
         except Exception as e:
-            print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em 5s...")
-            time.sleep(5)
+            espera = omie_api.espera_transitoria(tentativa)
+            print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {espera}s...")
+            time.sleep(espera)
     return False, [], 0
 
 def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
@@ -142,7 +151,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     print(f"  🔬 ZOOM NÍVEL 1: Tentando recuperar página {pagina_falha} como sub-páginas {pag_inicio}-{pag_fim} (de {tamanho_zoom1} registros cada)...")
     
     for sub_pag in range(pag_inicio, pag_fim + 1):
-        sucesso, registros, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=5)
+        sucesso, registros, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=3)
         if sucesso:
             registros_recuperados.extend(registros)
             print(f"    ✅ Sub-página {sub_pag}: {len(registros)} registros recuperados")
@@ -156,7 +165,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
             print(f"    🔬 ZOOM NÍVEL 2: Tentando sub-página {sub_pag} como micro-páginas {micro_inicio}-{micro_fim} (1 registro cada)...")
             
             for micro_pag in range(micro_inicio, micro_fim + 1):
-                ok, regs, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=3)
+                ok, regs, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=2)
                 if ok:
                     registros_recuperados.extend(regs)
                 else:
@@ -164,7 +173,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     
     return registros_recuperados
 
-def puxar_contas_pagar(empresa_config):
+def _puxar_contas_pagar(empresa_config):
     """Extrai todas as contas a pagar da Omie com Zoom Progressivo."""
     TAMANHO_PAGINA = 50
     pagina = 1
@@ -283,6 +292,16 @@ def rodar_rotina_cp():
     print(f"FIM! Total geral: {total_geral} registros processados.")
     print(f"{'='*60}")
     encerrar("Contas a Pagar")
+
+def puxar_contas_pagar(empresa_config):
+    """Extrai contas a pagar da empresa. Devolve None se o Omie recusar de forma
+    permanente (chave suspensa, bloqueio 425) - sem insistir."""
+    try:
+        return _puxar_contas_pagar(empresa_config)
+    except omie_api.ErroPermanente as e:
+        print(f"  ❌ Erro permanente do Omie, empresa interrompida sem repetir: {e}")
+        return None
+
 
 if __name__ == "__main__":
     rodar_rotina_cp()

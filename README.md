@@ -60,6 +60,12 @@ os casos os dados antigos da empresa são preservados.
 A regra existe porque a STUDIO GROWTH ficou fora de 22/09 a 04/10/2026 sem ninguém
 perceber: aviso amarelo no GitHub não gera email.
 
+As chamadas ao Omie seguem os [limites oficiais de consumo](https://ajuda.omie.com.br/pt-BR/articles/8112984-limites-de-consumo-da-api-do-omie)
+(regras centralizadas em [`omie_api.py`](omie_api.py)): 10 erros seguidos no mesmo
+método bloqueiam a chave por 30 minutos, então os scripts **não insistem** em erro
+permanente (chave suspensa, bloqueio 425), esperam o tempo que o Omie pede quando ele
+manda aguardar, e repetem instabilidades com espera crescente (5, 10, 20, 40 s).
+
 ## Secrets
 
 Em *Settings → Secrets and variables → Actions*:

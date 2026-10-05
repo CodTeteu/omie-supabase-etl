@@ -18,8 +18,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
 from gravacao import empresa_fora, encerrar, falha
+import omie_api
 
-def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_tentativas=10):
+def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_tentativas=4):
     """Tenta baixar uma página específica da Omie com retries."""
     param = {"pagina": pagina, "registros_por_pagina": tamanho, "apenas_importado_api": "N"}
     if filtros_extra:
@@ -42,21 +43,14 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_
                     registros = data["clientes_cadastro"]
                 return True, registros, total_paginas, False
             else:
-                if "chave de acesso est" in response.text or "aplicativo est" in response.text:
-                    print(f"    ❌ ERRO CRÍTICO DA OMIE: Chave da empresa {empresa_config['empresa']} inválida ou sem permissão para listar clientes.")
-                    return False, [], 0, True # Retorna 4º elemento para indicar bloqueio definitivo
-                elif "ERROR: Nenhum registro encontrado" in response.text or "registros para a p" in response.text:
-                    # A Omie as vezes devolve 500 quando não tem nenhum registro. Assumimos sucesso com 0 resultados.
+                tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
+                if tipo == omie_api.PERMANENTE:
+                    print(f"    ❌ Erro permanente do Omie para {empresa_config['empresa']} (HTTP {response.status_code}), sem repetir: {response.text[:150]}")
+                    return False, [], 0, True  # bloqueio definitivo
+                if tipo == omie_api.VAZIO:
                     return True, [], 1, False
-                
-                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Motivo: {response.text}")
-                
-                # Se for bloqueio de redundância ou API bloqueada (425), devemos esperar MAIS TEMPO
-                if "REDUNDANT" in response.text or "consumo indevido" in response.text or response.status_code == 425:
-                    print("      ⏳ Pausa forçada de 60s por Rate Limiting da Omie...")
-                    time.sleep(60)
-                else:
-                    time.sleep(5)
+                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s... Motivo: {response.text[:150]}")
+                time.sleep(espera)
         except Exception as e:
             wait_time = min(5 * (2 ** tentativa), 60) # Backoff: 5, 10, 20, 40, 60s
             print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {wait_time}s...")
@@ -120,7 +114,7 @@ def puxar_clientes(empresa_config):
             sucesso, registros_pagina, total_paginas, bloqueio_definitivo = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA, filtros_extra)
             
             if bloqueio_definitivo:
-                return [] # Interrompe a busca desta empresa imediatamente
+                return None  # erro permanente: o chamador registra a empresa como fora
                 
             if sucesso:
                 total_paginas_conhecido = total_paginas

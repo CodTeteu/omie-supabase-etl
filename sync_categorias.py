@@ -18,6 +18,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
 from gravacao import empresa_fora, encerrar, falha
+import omie_api
 
 def formatar_registro(cat, empresa_config):
     return {
@@ -27,7 +28,7 @@ def formatar_registro(cat, empresa_config):
         "descricao": cat.get("descricao")
     }
 
-def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
+def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
     body = {
         "call": "ListarCategorias",
         "app_key": empresa_config["app_key"],
@@ -39,7 +40,7 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
             response = requests.post(url, json=body, timeout=30)
             
             # BLOQUEIO DE CHAVE INVÁLIDA
-            if "chave de acesso est" in response.text or "aplicativo est" in response.text or response.status_code == 500:
+            if "chave de acesso est" in response.text or "aplicativo est" in response.text:
                 empresa_fora("Categorias", empresa_config, "chave do Omie invalida ou suspensa")
                 return False, [], 0, True # O 4º parametro avisa que é bloqueio definitivo
                 
@@ -51,11 +52,18 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
                     registros = data["categoria_cadastro"]
                 return True, registros, total_paginas, False
             else:
-                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em 5s...")
-                time.sleep(5)
+                tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
+                if tipo == omie_api.PERMANENTE:
+                    empresa_fora("Categorias", empresa_config, f"erro permanente do Omie (HTTP {response.status_code})")
+                    return False, [], 0, True
+                if tipo == omie_api.VAZIO:
+                    return True, [], 1, False
+                print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s...")
+                time.sleep(espera)
         except Exception as e:
-            print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em 5s...")
-            time.sleep(5)
+            espera = omie_api.espera_transitoria(tentativa)
+            print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {espera}s...")
+            time.sleep(espera)
     return False, [], 0, False
 
 def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
