@@ -13,15 +13,27 @@ pessoa. Veja [Recriar tudo do zero](#recriar-tudo-do-zero).
 
 ## Agendamento
 
-| Workflow | Quando (Brasília) | O que grava |
-|---|---|---|
-| Rotina Noturna Omie ETL | todo dia, 12:00 | `contas_receber_grupo`, `conta_corrente`, `movimentos_financeiros`, `contas_pagar` |
-| Sincronizar Clientes Isolado | domingo, 04:00 | `clientes_grupo` |
-| Sincronizar Departamentos Isolado | domingo, 04:40 | `departamentos_omie` |
-| Rotina Rapida - Categorias | domingo, 05:00 | `categorias_omie` |
+Uma rotina só, **todo dia à meia-noite** (horário de Brasília), atualiza tudo:
 
-Os cadastros rodam antes da rotina de domingo porque as views fazem JOIN com eles.
-O cron do GitHub é sempre em UTC: 15:00 UTC = 12:00 em Brasília.
+| Ordem | Etapa | Tabela |
+|---|---|---|
+| 1 | Categorias | `categorias_omie` |
+| 2 | Departamentos | `departamentos_omie` |
+| 3 | Clientes | `clientes_grupo` |
+| 4 | Contas a Receber | `contas_receber_grupo` |
+| 5 | Conta Corrente | `conta_corrente` |
+| 6 | Movimentos Financeiros | `movimentos_financeiros` |
+| 7 | Contas a Pagar | `contas_pagar` |
+
+Os cadastros (1 a 3) vêm primeiro porque as views cruzam os títulos com eles.
+
+O cron é `7 3 * * *`: o GitHub usa sempre UTC, e 03:07 UTC = 00:07 em Brasília. O
+minuto 07 é de propósito — o GitHub atrasa mais o que é marcado na hora cheia. Mesmo
+assim, execuções agendadas costumam atrasar algumas horas: na prática a rotina começa
+de madrugada e leva cerca de 2h30.
+
+Os workflows "Sincronizar Clientes Isolado", "Sincronizar Departamentos Isolado" e
+"Rotina Rapida - Categorias" continuam disponíveis para rodar manualmente.
 
 ## Quando algo dá errado, você fica sabendo
 
@@ -66,8 +78,8 @@ Se o projeto Supabase for perdido, pausado sem volta ou precisar mudar de conta:
    (botão *Connect*): a conexão direta usa só IPv6, que o GitHub Actions não suporta.
 3. **Rode o workflow "Provisionar Banco (schema completo)"**. Ele cria as 8 tabelas,
    as 8 chaves, as 8 views e as regras de seguranca, e confere os 41 itens.
-4. **Rode os workflows de cadastro** (Clientes, Departamentos, Categorias) e depois
-   a **Rotina Noturna Omie ETL**, manualmente. A carga completa leva cerca de 95 minutos.
+4. **Rode a Rotina Noturna Omie ETL** manualmente. Ela já inclui os cadastros;
+   a carga completa leva cerca de 2h30.
 5. Confira o resumo de contagens na página da última execução.
 
 Pelo terminal, os mesmos passos:

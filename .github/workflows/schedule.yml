@@ -3,14 +3,21 @@ name: Rotina Noturna Omie ETL
 on:
   schedule:
     # ATENCAO: o cron do GitHub Actions e SEMPRE em UTC. O Brasil e UTC-3
-    # (sem horario de verao desde 2019), entao subtraia 3h para saber o
-    # horario de Brasilia.
+    # (sem horario de verao desde 2019): 03:07 UTC = 00:07 em Brasilia.
     #
-    # 15:00 UTC = 12:00 (meio-dia) no horario de Brasilia.
-    # Roda TODOS os dias, incluindo sabados e domingos.
-    - cron: '0 15 * * *'
+    # Meia-noite, como na automacao original. O minuto 07 e de proposito: o
+    # GitHub atrasa mais as execucoes marcadas na hora cheia. Mesmo assim o
+    # atraso costuma ser de algumas horas - na pratica a rotina comeca de
+    # madrugada e leva cerca de 2h30.
+    - cron: '7 3 * * *'
 
   workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
+
+# Duas execucoes ao mesmo tempo apagariam e regravariam as mesmas tabelas em
+# paralelo. Se uma for disparada enquanto outra roda, ela espera na fila.
+concurrency:
+  group: rotina-omie
+  cancel-in-progress: false
 
 jobs:
   run-etl:
@@ -21,12 +28,14 @@ jobs:
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
 
+    # Atualiza TUDO todo dia: os 3 cadastros e as 4 tabelas principais.
+    #
     # Qualquer gravacao que falhe deixa a execucao VERMELHA e o GitHub avisa
     # por email. Antes, os erros eram so impressos no log: de 16/09 a
     # 04/10/2026 o banco nao existia e todas as execucoes ficaram verdes.
     #
-    # Os 4 passos de ETL rodam mesmo que um anterior falhe (um problema numa
-    # tabela nao impede as outras), mas so se o banco responder no inicio.
+    # Cada passo roda mesmo que um anterior falhe (um problema numa tabela nao
+    # impede as outras), mas so se o banco responder no inicio.
 
     steps:
       - name: Checando o código do repositório
@@ -45,6 +54,19 @@ jobs:
       - name: Checando se o banco responde
         id: banco
         run: python checar_saude.py --antes
+
+      # Cadastros primeiro: as views cruzam os titulos com eles.
+      - name: Sincronizando Categorias
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: python sync_categorias.py
+
+      - name: Sincronizando Departamentos
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: python sync_departamentos.py
+
+      - name: Sincronizando Clientes
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: python sync_clientes.py
 
       - name: Executando o Script de Contas a Receber
         if: ${{ !cancelled() && steps.banco.outcome == 'success' }}

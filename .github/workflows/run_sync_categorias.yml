@@ -1,11 +1,7 @@
 name: Rotina Rapida - Categorias
 
 on:
-  schedule:
-    # Semanal, aos domingos. 08:00 UTC dom = 05:00 dom em Brasilia.
-    # Roda ANTES da rotina diaria (09:00 UTC) porque estas tabelas sao
-    # dimensoes usadas nos JOINs das views. leva ~2 min
-    - cron: '0 8 * * 0'
+  # Manual. Todo dia ja roda dentro da Rotina Noturna Omie ETL, a meia-noite.
   workflow_dispatch:
 
 jobs:
