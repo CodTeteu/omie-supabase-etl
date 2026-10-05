@@ -1,11 +1,12 @@
 """
 Decide se a rotina agendada roda a carga.
 
-O GitHub pode descartar execucoes agendadas sem aviso nenhum - aconteceu na
-primeira noite do horario novo (05/10/2026): a das 00:07 simplesmente nao
-existiu, e como nada rodou, nada alertou. Por isso a rotina tem tres disparos
-(00:07, 04:07 e 08:07 em Brasilia), e este script evita que mais de um faca
-a carga no mesmo dia.
+O GitHub atrasa execucoes agendadas em horas e, sob carga, pode descarta-las
+sem aviso. Na primeira noite do horario novo (05/10/2026) a das 00:07 so
+chegou as 07:17; a rotina original, marcada para 00:00, comecava entre 04:46
+e 06:53. E um disparo que nunca chega nao roda nada e nao alerta ninguem.
+Por isso a rotina tem tres disparos (00:07, 04:07 e 08:07 em Brasilia), e
+este script evita que mais de um faca a carga no mesmo dia.
 
 Roda a carga quando:
   - o disparo e manual; ou
@@ -41,8 +42,9 @@ def decidir(evento, disparo, ultima_carga, agora, anteriores_em_andamento):
         return False, f"dados ja atualizados hoje, as {quando} (Brasilia)", None
     aviso = None
     if disparo != PRINCIPAL:
-        aviso = ("A carga da meia-noite nao aconteceu hoje (o GitHub nao disparou ou ela "
-                 "falhou antes de gravar). Recuperando agora, no disparo de reserva.")
+        aviso = ("A carga da meia-noite ainda nao aconteceu hoje (o GitHub atrasou ou nao "
+                 "disparou, ou ela falhou antes de gravar). Fazendo a carga agora, no "
+                 "disparo de reserva.")
     return True, "dados ainda nao atualizados hoje", aviso
 
 

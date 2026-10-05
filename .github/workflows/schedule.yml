@@ -5,11 +5,12 @@ on:
     # ATENCAO: o cron do GitHub Actions e SEMPRE em UTC. O Brasil e UTC-3
     # (sem horario de verao desde 2019): subtraia 3h para Brasilia.
     #
-    # O GitHub pode DESCARTAR execucoes agendadas sem aviso - aconteceu na
-    # primeira noite (05/10/2026): a das 00:07 nao existiu, e como nada rodou,
-    # nada alertou. Por isso sao tres disparos. Cada um comeca pelo job
-    # "decidir": se os dados ja foram atualizados hoje, encerra em segundos;
-    # se a meia-noite foi perdida, o proximo disparo recupera.
+    # O GitHub ATRASA os agendamentos em horas e, sob carga, pode descartar
+    # disparos sem aviso. Na primeira noite (05/10/2026) o das 00:07 chegou as
+    # 07:17; a rotina original, marcada para 00:00, comecava entre 04:46 e 06:53.
+    # Por isso sao tres disparos. Cada um comeca pelo job "decidir": se os
+    # dados ja foram atualizados hoje ou outra execucao esta rodando, encerra
+    # em segundos; se a meia-noite nao veio, o proximo disparo faz a carga.
     - cron: '7 3 * * *'    # 00:07 em Brasilia - principal, como na automacao original
     - cron: '7 7 * * *'    # 04:07 em Brasilia - reserva
     - cron: '7 11 * * *'   # 08:07 em Brasilia - reserva

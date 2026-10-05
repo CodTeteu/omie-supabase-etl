@@ -29,8 +29,8 @@ class Decidir(unittest.TestCase):
         self.assertTrue(rodar)
         self.assertIsNone(aviso)
 
-    def test_reserva_depois_de_meia_noite_perdida_roda_e_avisa(self):
-        # o caso de 05/10/2026: a das 00:07 nao existiu
+    def test_reserva_sem_carga_hoje_roda_e_avisa(self):
+        # a das 00:07 atrasou (ou nao veio) e a reserva chegou antes dela
         rodar, _, aviso = decidir("schedule", RESERVA, brasilia(4, 16, 37), brasilia(5, 4, 10), 0)
         self.assertTrue(rodar)
         self.assertIsNotNone(aviso)
