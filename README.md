@@ -35,6 +35,12 @@ de madrugada e leva cerca de 2h30.
 Os workflows "Sincronizar Clientes Isolado", "Sincronizar Departamentos Isolado" e
 "Rotina Rapida - Categorias" continuam disponíveis para rodar manualmente.
 
+**A rotina se mantém ativa sozinha.** Em repositório público, o GitHub desativa
+rotinas agendadas após 60 dias sem commits — e esta automação roda sem ninguém mexer
+no código, então pararia em silêncio. Para evitar isso, quando o último commit passa
+de 45 dias, a própria rotina faz um commit vazio de manutenção. Para testar, dispare a
+rotina manualmente marcando *"Só testar o commit de manutenção"*.
+
 ## Quando algo dá errado, você fica sabendo
 
 Qualquer gravação que falhe deixa a execução **vermelha**, e o GitHub manda email.
