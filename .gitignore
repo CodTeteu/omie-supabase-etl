@@ -1,8 +1,16 @@
-# Credenciais - NUNCA commitar
+# Credenciais - NUNCA commitar (o repositorio e PUBLICO)
 .env
 env
 *.env
 .omie-etl.env
+
+# Pasta de acessos do banco: senha do Postgres e chaves de administrador
+Banco ETL Omie - Acessos/
+# Os mesmos arquivos, caso algum seja copiado solto para dentro do repositorio
+conexao-banco.json
+credenciais-api-omie.json
+omie-credenciais.json
+ACESSOS - Banco ETL Omie.txt
 
 # Python
 __pycache__/
