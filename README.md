@@ -27,10 +27,14 @@ Uma rotina só, **todo dia à meia-noite** (horário de Brasília), atualiza tud
 
 Os cadastros (1 a 3) vêm primeiro porque as views cruzam os títulos com eles.
 
-O cron é `7 3 * * *`: o GitHub usa sempre UTC, e 03:07 UTC = 00:07 em Brasília. O
-minuto 07 é de propósito — o GitHub atrasa mais o que é marcado na hora cheia. Mesmo
-assim, execuções agendadas costumam atrasar algumas horas: na prática a rotina começa
-de madrugada e leva cerca de 2h30.
+O GitHub usa sempre UTC (03:07 UTC = 00:07 em Brasília) e trata agendamentos como
+"melhor esforço": eles podem atrasar horas e, sob carga, ser **descartados sem aviso**
+— aconteceu na primeira noite, 05/10/2026. Por isso há **três disparos**: 00:07
+(principal), 04:07 e 08:07. Cada um começa checando, pela data de gravação no banco,
+se os dados já foram atualizados **hoje** (dia em Brasília) e se não há outra execução
+rodando ([`decidir_execucao.py`](decidir_execucao.py)). Se a meia-noite rodou, os
+outros encerram em segundos; se foi perdida, o próximo recupera e deixa um aviso. A
+carga leva cerca de 2h30.
 
 Os workflows "Sincronizar Clientes Isolado", "Sincronizar Departamentos Isolado" e
 "Rotina Rapida - Categorias" continuam disponíveis para rodar manualmente.

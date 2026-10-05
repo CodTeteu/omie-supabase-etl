@@ -3,13 +3,16 @@ name: Rotina Noturna Omie ETL
 on:
   schedule:
     # ATENCAO: o cron do GitHub Actions e SEMPRE em UTC. O Brasil e UTC-3
-    # (sem horario de verao desde 2019): 03:07 UTC = 00:07 em Brasilia.
+    # (sem horario de verao desde 2019): subtraia 3h para Brasilia.
     #
-    # Meia-noite, como na automacao original. O minuto 07 e de proposito: o
-    # GitHub atrasa mais as execucoes marcadas na hora cheia. Mesmo assim o
-    # atraso costuma ser de algumas horas - na pratica a rotina comeca de
-    # madrugada e leva cerca de 2h30.
-    - cron: '7 3 * * *'
+    # O GitHub pode DESCARTAR execucoes agendadas sem aviso - aconteceu na
+    # primeira noite (05/10/2026): a das 00:07 nao existiu, e como nada rodou,
+    # nada alertou. Por isso sao tres disparos. Cada um comeca pelo job
+    # "decidir": se os dados ja foram atualizados hoje, encerra em segundos;
+    # se a meia-noite foi perdida, o proximo disparo recupera.
+    - cron: '7 3 * * *'    # 00:07 em Brasilia - principal, como na automacao original
+    - cron: '7 7 * * *'    # 04:07 em Brasilia - reserva
+    - cron: '7 11 * * *'   # 08:07 em Brasilia - reserva
 
   workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
     inputs:
@@ -47,8 +50,35 @@ jobs:
             echo "Nada a fazer: o GitHub so desativa apos 60 dias sem commit."
           fi
 
-  run-etl:
+  decidir:
+    # Roda a carga se o disparo for manual, ou se os dados ainda nao foram
+    # atualizados hoje e nao ha execucao anterior em andamento. Ver
+    # decidir_execucao.py.
     if: ${{ !inputs.somente_manutencao }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      rodar: ${{ steps.decisao.outputs.rodar }}
+
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Decidindo se a carga roda neste disparo
+        id: decisao
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENTO: ${{ github.event_name }}
+          DISPARO: ${{ github.event.schedule }}
+        run: python3 decidir_execucao.py
+
+  run-etl:
+    needs: decidir
+    if: ${{ needs.decidir.outputs.rodar == 'true' }}
     runs-on: ubuntu-latest
 
     # Duas execucoes ao mesmo tempo apagariam e regravariam as mesmas tabelas em
