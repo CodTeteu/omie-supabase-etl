@@ -15,7 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
-from gravacao import aviso, encerrar, substituir_dados_empresa
+from gravacao import empresa_fora, encerrar, substituir_dados_empresa
 
 def converter_data(data_br):
     if not data_br:
@@ -125,7 +125,7 @@ def rodar_rotina_cc():
         lancamentos_cc = puxar_conta_corrente(empresa)
         
         if lancamentos_cc is None:
-            aviso(f"Conta Corrente / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            empresa_fora("Conta Corrente", empresa, "falha na extracao do Omie")
             continue
             
         if lancamentos_cc:

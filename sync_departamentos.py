@@ -17,7 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
-from gravacao import aviso, encerrar, falha
+from gravacao import empresa_fora, encerrar, falha
 
 def formatar_registro(dept, empresa_config):
     return {
@@ -147,7 +147,7 @@ def main(empresa_alvo=None):
         departamentos = puxar_departamentos_isolado(empresa)
         
         if departamentos is None:
-            aviso(f"Departamentos / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            empresa_fora("Departamentos", empresa, "falha na extracao do Omie")
             continue
             
         if len(departamentos) == 0:

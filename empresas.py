@@ -15,6 +15,10 @@ import os
 import sys
 import json
 
+# "suspensa_desde" marca uma empresa cuja chave do Omie esta suspensa e cuja
+# ausencia ja e conhecida: ela gera so aviso. Qualquer OUTRA empresa que deixe
+# de carregar deixa a execucao vermelha e o GitHub manda email.
+# Quando a chave for reativada no Omie, apague a marcacao.
 _EMPRESAS_BASE = [
     {"empresa": 'ALIANÇA LEGAL', "cnpj": '12.340.921/0001-82'},
     {"empresa": 'AUDIT TECNOLOGIA', "cnpj": '44.158.057/0001-99'},
@@ -30,9 +34,9 @@ _EMPRESAS_BASE = [
     {"empresa": 'STUDIO BROKERS', "cnpj": '14.723.195/0001-02'},
     {"empresa": 'STUDIO CONTABILIDADE LTDA', "cnpj": '53.192.862/0001-20'},
     {"empresa": 'STUDIO ENERGY', "cnpj": '34.349.108/0001-06'},
-    {"empresa": 'STUDIO FACTORING', "cnpj": '42.275.720/0001-00'},
+    {"empresa": 'STUDIO FACTORING', "cnpj": '42.275.720/0001-00', "suspensa_desde": "2026-07"},
     {"empresa": 'STUDIO FISCAL', "cnpj": '08.865.854/0001-42'},
-    {"empresa": 'STUDIO GROWTH', "cnpj": '36.685.910/0001-00'},
+    {"empresa": 'STUDIO GROWTH', "cnpj": '36.685.910/0001-00', "suspensa_desde": "2026-09-22"},
     {"empresa": 'STUDIO OPERACIONAL', "cnpj": '23.448.109/0001-91'},
     {"empresa": 'STUDIO OPERACIONAL 01', "cnpj": '62.700.834/0001-67'},
     {"empresa": 'STUDIO PAR', "cnpj": '11.863.345/0001-95'},

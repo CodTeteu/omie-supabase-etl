@@ -17,7 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
-from gravacao import aviso, encerrar, falha
+from gravacao import empresa_fora, encerrar, falha
 
 def formatar_registro(cat, empresa_config):
     return {
@@ -40,7 +40,7 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=10):
             
             # BLOQUEIO DE CHAVE INVÁLIDA
             if "chave de acesso est" in response.text or "aplicativo est" in response.text or response.status_code == 500:
-                aviso(f"Categorias / {empresa_config['empresa']}: chave do Omie invalida ou suspensa. Empresa pulada, dados antigos preservados.")
+                empresa_fora("Categorias", empresa_config, "chave do Omie invalida ou suspensa")
                 return False, [], 0, True # O 4º parametro avisa que é bloqueio definitivo
                 
             if response.status_code == 200:

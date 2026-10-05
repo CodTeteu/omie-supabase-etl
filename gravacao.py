@@ -33,6 +33,22 @@ def aviso(msg):
     print(f"::warning::{msg[:500]}")
 
 
+def empresa_fora(rotulo, empresa, motivo):
+    """
+    Empresa que nao carregou (ex.: chave do Omie suspensa). Se estiver marcada
+    com "suspensa_desde" em empresas.py, e uma ausencia conhecida: so aviso.
+    Qualquer outra vira falha - execucao vermelha e email.
+
+    Existe porque a STUDIO GROWTH ficou fora de 22/09 a 04/10/2026 sem ninguem
+    perceber: um aviso amarelo no Actions nao gera email.
+    """
+    msg = f"{rotulo} / {empresa['empresa']}: {motivo}. Dados antigos preservados."
+    if empresa.get("suspensa_desde"):
+        aviso(f"{msg} Suspensa conhecida desde {empresa['suspensa_desde']}.")
+    else:
+        falha(msg)
+
+
 def substituir_dados_empresa(url, headers, tabela, registros, empresa, rotulo, tamanho_lote=500):
     """
     Apaga os dados da empresa na tabela e grava os novos, em lotes.

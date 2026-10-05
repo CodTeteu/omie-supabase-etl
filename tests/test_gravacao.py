@@ -91,6 +91,25 @@ class Encerrar(unittest.TestCase):
         self.assertEqual(gravacao._falhas, [])
 
 
+class EmpresaFora(unittest.TestCase):
+    def setUp(self):
+        gravacao._falhas.clear()
+
+    def test_suspensa_conhecida_gera_so_aviso(self):
+        # FACTORING e GROWTH: chave suspensa no Omie, ausencia ja conhecida
+        suspensa = {**EMPRESA, "suspensa_desde": "2026-09-22"}
+        gravacao.empresa_fora("Teste", suspensa, "falha na extracao do Omie")
+        self.assertEqual(gravacao._falhas, [])
+        gravacao.encerrar("Teste")  # nao deve levantar SystemExit
+
+    def test_empresa_nova_fora_vira_falha(self):
+        # o caso da GROWTH antes de ser marcada: 12 dias fora sem ninguem saber
+        gravacao.empresa_fora("Teste", EMPRESA, "falha na extracao do Omie")
+        self.assertEqual(len(gravacao._falhas), 1)
+        with self.assertRaises(SystemExit):
+            gravacao.encerrar("Teste")
+
+
 class DeduplicarMovimentos(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

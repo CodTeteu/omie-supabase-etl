@@ -17,7 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
-from gravacao import aviso, encerrar, falha
+from gravacao import empresa_fora, encerrar, falha
 
 def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_tentativas=10):
     """Tenta baixar uma página específica da Omie com retries."""
@@ -168,7 +168,7 @@ def run_sync_clientes(empresa_alvo=None):
         clientes = puxar_clientes(empresa)
         
         if clientes is None:
-            aviso(f"Clientes / {empresa['empresa']}: falha na extracao do Omie. Dados antigos preservados.")
+            empresa_fora("Clientes", empresa, "falha na extracao do Omie")
             continue
             
         if clientes:

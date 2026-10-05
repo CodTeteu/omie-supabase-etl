@@ -11,7 +11,7 @@ falhava (ex.: STUDIO FACTORING, com a chave suspensa no Omie), o historico
 dela era apagado e nada era gravado no lugar.
 """
 import contas_pagar_etl
-from gravacao import aviso, encerrar, substituir_dados_empresa
+from gravacao import empresa_fora, encerrar, substituir_dados_empresa
 
 
 def rodar_recarga_cp():
@@ -26,7 +26,7 @@ def rodar_recarga_cp():
         print(f"\nExtraindo Contas a Pagar de: {empresa['empresa']}...")
         registros = contas_pagar_etl.puxar_contas_pagar(empresa)
         if not registros:
-            aviso(f"Contas a Pagar / {empresa['empresa']}: nenhum registro retornado pelo Omie. Dados antigos preservados.")
+            empresa_fora("Contas a Pagar", empresa, "nenhum registro retornado pelo Omie")
             continue
         substituir_dados_empresa(contas_pagar_etl.SUPABASE_URL, headers_supabase, "contas_pagar",
                                  registros, empresa, "Contas a Pagar")

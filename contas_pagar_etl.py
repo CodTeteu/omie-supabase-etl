@@ -16,7 +16,7 @@ SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 # Lista de Empresas
 from empresas import EMPRESAS
-from gravacao import aviso, encerrar, falha
+from gravacao import empresa_fora, encerrar, falha
 
 def converter_data(data_br):
     if not data_br:
@@ -277,7 +277,7 @@ def rodar_rotina_cp():
                 print(f"⚠️ Apenas {enviados} de {len(contas_pagar)} registros salvos para {empresa['empresa']}")
             total_geral += enviados
         else:
-            aviso(f"Contas a Pagar / {empresa['empresa']}: nenhum registro retornado pelo Omie (sem titulos ou falha de acesso). Dados antigos preservados.")
+            empresa_fora("Contas a Pagar", empresa, "nenhum registro retornado pelo Omie (sem titulos ou falha de acesso)")
     
     print(f"\n{'='*60}")
     print(f"FIM! Total geral: {total_geral} registros processados.")

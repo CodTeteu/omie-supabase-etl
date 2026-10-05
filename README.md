@@ -33,9 +33,14 @@ contagens aparece na página de cada execução.
 Isso não existia antes: de 16/09 a 04/10/2026 o projeto Supabase deixou de existir
 e as 19 execuções desse período ficaram verdes, sem gravar nada.
 
-Problemas que não perdem dados — uma empresa com a chave do Omie suspensa, por
-exemplo — aparecem como **aviso** amarelo, sem derrubar a execução. Os dados
-antigos daquela empresa são preservados.
+Uma empresa que deixa de carregar — chave do Omie suspensa, por exemplo — também
+deixa a execução **vermelha**, a não ser que esteja marcada com `suspensa_desde` em
+[`empresas.py`](empresas.py). Essas ausências já conhecidas aparecem só como
+**aviso** amarelo; quando a chave for reativada no Omie, apague a marcação. Em todos
+os casos os dados antigos da empresa são preservados.
+
+A regra existe porque a STUDIO GROWTH ficou fora de 22/09 a 04/10/2026 sem ninguém
+perceber: aviso amarelo no GitHub não gera email.
 
 ## Secrets
 
@@ -100,13 +105,15 @@ python -m unittest discover -s tests -v     # testes, sem banco nem rede
 
 ## Pendências conhecidas
 
-- **STUDIO FACTORING** está com a chave suspensa no Omie (HTTP 403) desde jul/2026.
-  Aparece como aviso em toda execução; os dados dela estão congelados até a chave
-  ser reativada no painel do Omie.
+- **STUDIO FACTORING** (desde jul/2026) e **STUDIO GROWTH** (desde 22/09/2026) estão
+  com a chave suspensa no Omie (HTTP 403). Estão marcadas como suspensas conhecidas
+  em `empresas.py`, então geram só aviso. Ficam sem dados no banco até as chaves
+  serem reativadas no painel do Omie.
 - **`extrato_etl.py`** existe, mas nenhum workflow o executa — por isso
   `extrato_bancario` fica vazia.
 - **`bandeira_id`** em `contas_pagar` é sempre `0`: a API do Omie não devolve esse
   campo. Não causa colisão, porque os códigos de título do Omie são únicos em toda a
   plataforma.
-- **Plano Free do Supabase** tem limite de 500 MB; a base ocupava cerca de 315 MB em
-  setembro/2026. O provisionamento mostra o espaço usado e avisa acima de 80%.
+- **Plano Free do Supabase** tem limite de 500 MB; depois da carga completa de
+  04/10/2026 a base ocupava 257 MB (51%), quase metade disso em `contas_pagar`. O
+  provisionamento mostra o espaço usado e avisa acima de 80%.
