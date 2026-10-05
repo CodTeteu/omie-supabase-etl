@@ -65,7 +65,7 @@ Se o projeto Supabase for perdido, pausado sem volta ou precisar mudar de conta:
    dados do projeto novo. Em `DATABASE_URL`, use a string do *Session pooler*
    (botão *Connect*): a conexão direta usa só IPv6, que o GitHub Actions não suporta.
 3. **Rode o workflow "Provisionar Banco (schema completo)"**. Ele cria as 8 tabelas,
-   as 8 chaves e as 8 views, e confere os 25 objetos.
+   as 8 chaves, as 8 views e as regras de seguranca, e confere os 41 itens.
 4. **Rode os workflows de cadastro** (Clientes, Departamentos, Categorias) e depois
    a **Rotina Noturna Omie ETL**, manualmente. A carga completa leva cerca de 95 minutos.
 5. Confira o resumo de contagens na página da última execução.
@@ -82,6 +82,10 @@ gh workflow run "Rotina Noturna Omie ETL" --repo CodTeteu/omie-supabase-etl
 
 Definida em [`provisionar_banco_completo.sql`](provisionar_banco_completo.sql) —
 idempotente, pode rodar mais de uma vez. Cada view traz um comentário com sua origem.
+
+**Segurança:** RLS ligado em todas as tabelas, sem políticas, e views com
+`security_invoker`. As chaves públicas (`anon`, `publishable`) não acessam nada;
+a automação (`service_role`) e o Power BI (usuário `postgres`) não são afetados.
 
 - **Tabelas:** `contas_receber_grupo`, `conta_corrente`, `movimentos_financeiros`,
   `contas_pagar`, `clientes_grupo`, `categorias_omie`, `departamentos_omie`, `extrato_bancario`

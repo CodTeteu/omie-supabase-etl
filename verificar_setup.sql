@@ -1,7 +1,7 @@
 -- =============================================================================
 -- VERIFICACAO DO PROVISIONAMENTO - ETL Omie -> Supabase
 -- Rode no SQL Editor DEPOIS de aplicar provisionar_banco_completo.sql.
--- Esperado: 25 linhas, todas com status OK.
+-- Esperado: 41 linhas, todas com status OK.
 -- =============================================================================
 WITH esperado(tipo, nome) AS (
   VALUES
@@ -17,7 +17,23 @@ WITH esperado(tipo, nome) AS (
     ('4-view','metas'), ('4-view','metas_bruto'), ('4-view','painel_contas_pagar'),
     ('4-view','view_contas_pagar'), ('4-view','view_contas_receber'),
     ('4-view','view_faturamento_rateado'), ('4-view','view_inadimplencia'),
-    ('4-view','vw_contas_receber_detalhada')
+    ('4-view','vw_contas_receber_detalhada'),
+    ('5-rls','categorias_omie'),
+    ('5-rls','clientes_grupo'),
+    ('5-rls','conta_corrente'),
+    ('5-rls','contas_pagar'),
+    ('5-rls','contas_receber_grupo'),
+    ('5-rls','departamentos_omie'),
+    ('5-rls','extrato_bancario'),
+    ('5-rls','movimentos_financeiros'),
+    ('6-invoker','metas'),
+    ('6-invoker','metas_bruto'),
+    ('6-invoker','painel_contas_pagar'),
+    ('6-invoker','view_contas_pagar'),
+    ('6-invoker','view_contas_receber'),
+    ('6-invoker','view_faturamento_rateado'),
+    ('6-invoker','view_inadimplencia'),
+    ('6-invoker','vw_contas_receber_detalhada')
 )
 SELECT
   e.tipo,
@@ -26,6 +42,11 @@ SELECT
        (e.tipo = '1-extensao' AND EXISTS (SELECT 1 FROM pg_extension WHERE extname = e.nome))
     OR (e.tipo = '2-tabela'   AND to_regclass('public.'||quote_ident(e.nome)) IS NOT NULL)
     OR (e.tipo = '4-view'     AND to_regclass('public.'||quote_ident(e.nome)) IS NOT NULL)
+    OR (e.tipo = '5-rls'      AND (SELECT relrowsecurity FROM pg_class
+                                   WHERE oid = to_regclass('public.'||quote_ident(e.nome))))
+    OR (e.tipo = '6-invoker'  AND EXISTS (SELECT 1 FROM pg_class c, unnest(c.reloptions) o
+                                          WHERE c.oid = to_regclass('public.'||quote_ident(e.nome))
+                                            AND lower(o) ~ '^security_invoker=(on|true|1|yes)$'))
     OR (e.tipo = '3-pk'       AND EXISTS (SELECT 1 FROM pg_constraint
                                           WHERE conrelid = to_regclass('public.'||quote_ident(e.nome))
                                             AND contype = 'p'))

@@ -4,7 +4,7 @@ Provisiona o banco do zero a partir do repositorio.
   DATABASE_URL="postgresql://..." python provisionar.py
 
 Aplica provisionar_banco_completo.sql (idempotente: pode rodar mais de uma
-vez), confere os 25 objetos com verificar_setup.sql e mostra o espaco usado.
+vez), confere objetos e seguranca com verificar_setup.sql e mostra o espaco usado.
 
 Com isso, perder o projeto Supabase deixa de ser catastrofico: cria-se um
 projeto novo, roda-se este script e a rotina diaria repovoa os dados a

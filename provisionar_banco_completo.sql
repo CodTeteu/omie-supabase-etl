@@ -1332,3 +1332,33 @@ CREATE OR REPLACE VIEW public.vw_contas_receber_detalhada AS
             WHEN (json_typeof(cr.distribuicao) = 'array'::text) THEN cr.distribuicao
             ELSE '[]'::json
         END) d(value) ON (true));
+
+-- =============================== SEGURANCA ===============================
+-- RLS ligado em todas as tabelas, SEM politicas: as chaves publicas (anon e
+-- publishable) nao leem nem gravam nada pela API REST. Quem continua com acesso:
+--   - service_role (a automacao): ignora RLS por definicao;
+--   - usuario postgres (Power BI e clientes SQL): dono das tabelas, nao e
+--     afetado por RLS.
+-- As views passam a rodar com as permissoes de quem consulta (security_invoker);
+-- sem isso elas seriam uma porta lateral contornando o RLS das tabelas.
+--
+-- Ate 04/10/2026 o banco foi recriado sem isto e a chave anon - que o Supabase
+-- trata como publica - podia ler, inserir e apagar qualquer dado.
+
+ALTER TABLE public.categorias_omie ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clientes_grupo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.conta_corrente ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contas_pagar ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contas_receber_grupo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.departamentos_omie ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.extrato_bancario ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.movimentos_financeiros ENABLE ROW LEVEL SECURITY;
+
+ALTER VIEW public.metas SET (security_invoker = on);
+ALTER VIEW public.metas_bruto SET (security_invoker = on);
+ALTER VIEW public.painel_contas_pagar SET (security_invoker = on);
+ALTER VIEW public.view_contas_pagar SET (security_invoker = on);
+ALTER VIEW public.view_contas_receber SET (security_invoker = on);
+ALTER VIEW public.view_faturamento_rateado SET (security_invoker = on);
+ALTER VIEW public.view_inadimplencia SET (security_invoker = on);
+ALTER VIEW public.vw_contas_receber_detalhada SET (security_invoker = on);
