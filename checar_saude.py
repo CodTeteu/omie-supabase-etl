@@ -10,6 +10,10 @@ Checagem do banco antes e depois da rotina.
       Confere se as tabelas tem dados e escreve um resumo na pagina da
       execucao no GitHub Actions. Sai com erro se alguma estiver vazia.
 
+Com o espelho configurado (SUPABASE_URL_ESPELHO e SUPABASE_KEY_ESPELHO, ver espelho.py), o
+--antes tambem testa o banco da Audit (so aviso: a carga do principal roda mesmo assim) e o
+final compara a contagem de cada tabela nos dois bancos: diferenca = execucao vermelha.
+
 Existe porque de 16/09 a 04/10/2026 o projeto Supabase deixou de existir e
 todas as execucoes terminaram verdes, sem gravar nada.
 """
@@ -33,6 +37,32 @@ def erro(msg):
     print(f"❌ {msg}")
     print(f"::error::{msg[:500]}")
     sys.exit(1)
+
+
+def aviso(msg):
+    print(f"⚠️ {msg}")
+    print(f"::warning::{msg[:500]}")
+
+
+def contar(url, headers, tabela):
+    """Total de registros da tabela (Content-Range com count=exact). Devolve (total, erro)."""
+    try:
+        r = requests.get(f"{url}/rest/v1/{tabela}?select=*&limit=1",
+                         headers={**headers, "Prefer": "count=exact"}, timeout=120)
+    except requests.RequestException as e:
+        return None, str(e)[:200]
+    if r.status_code not in (200, 206):
+        return None, f"HTTP {r.status_code} {r.text[:200]}"
+    return int(r.headers.get("Content-Range", "*/0").split("/")[-1]), None
+
+
+def espelho():
+    """(url, headers) do banco espelho da Audit, ou (None, None) se nao estiver configurado."""
+    url = (os.environ.get("SUPABASE_URL_ESPELHO") or "").rstrip("/")
+    chave = os.environ.get("SUPABASE_KEY_ESPELHO")
+    if not url or not chave:
+        return None, None
+    return url, {"apikey": chave, "Authorization": f"Bearer {chave}"}
 
 
 def resumo(texto):
@@ -60,33 +90,58 @@ def main():
         if r.status_code != 200:
             erro(f"Banco respondeu HTTP {r.status_code} em {url}: {r.text[:200]}")
         print(f"✅ Banco acessivel: {url}")
+        url_e, headers_e = espelho()
+        if url_e:
+            total, problema = contar(url_e, headers_e, "contas_pagar")
+            if problema:
+                aviso(f"Banco espelho da Audit nao respondeu em {url_e} ({problema}). A carga do banco principal "
+                      f"roda mesmo assim; as gravacoes no espelho vao falhar e a execucao fica vermelha.")
+            else:
+                print(f"✅ Banco espelho acessivel: {url_e}")
         return
 
     linhas, vazias = [], []
     for tabela in TABELAS:
-        try:
-            r = requests.get(f"{url}/rest/v1/{tabela}?select=*&limit=1",
-                             headers={**headers, "Prefer": "count=exact"}, timeout=120)
-        except requests.RequestException as e:
-            erro(f"Banco inacessivel ao contar {tabela} ({e}).")
-        if r.status_code not in (200, 206):
-            erro(f"Falha ao contar {tabela}: HTTP {r.status_code} {r.text[:200]}")
-        total = int(r.headers.get("Content-Range", "*/0").split("/")[-1])
+        total, problema = contar(url, headers, tabela)
+        if problema:
+            erro(f"Falha ao contar {tabela}: {problema}")
         linhas.append((tabela, total))
         if total == 0:
             vazias.append(tabela)
 
-    print(f"{'TABELA':<26}{'REGISTROS':>12}")
-    for tabela, total in linhas:
-        print(f"{tabela:<26}{total:>12,}")
+    url_e, headers_e = espelho()
+    no_espelho, diferentes = {}, []
+    if url_e:
+        for tabela, total in linhas:
+            total_e, problema = contar(url_e, headers_e, tabela)
+            no_espelho[tabela] = total_e
+            if problema or total_e != total:
+                diferentes.append(f"{tabela} ({total:,} no principal, {problema or format(total_e, ',')} no espelho)")
 
-    resumo("### Registros no banco depois da rotina\n\n| Tabela | Registros |\n|---|---:|")
+    print(f"{'TABELA':<26}{'REGISTROS':>12}" + (f"{'ESPELHO':>12}" if url_e else ""))
     for tabela, total in linhas:
-        resumo(f"| `{tabela}` | {total:,} |")
+        e = no_espelho.get(tabela)
+        extra = (f"{e:>12,}" if e is not None else f"{'?':>12}") if url_e else ""
+        print(f"{tabela:<26}{total:>12,}{extra}")
+
+    if url_e:
+        resumo("### Registros depois da rotina\n\n| Tabela | Principal | Espelho (Audit) |\n|---|---:|---:|")
+        for tabela, total in linhas:
+            e = no_espelho.get(tabela)
+            resumo(f"| `{tabela}` | {total:,} | {format(e, ',') if e is not None else '?'} |")
+    else:
+        resumo("### Registros no banco depois da rotina\n\n| Tabela | Registros |\n|---|---:|")
+        for tabela, total in linhas:
+            resumo(f"| `{tabela}` | {total:,} |")
 
     if vazias:
         erro(f"Tabela(s) vazia(s) depois da rotina: {', '.join(vazias)}.")
     print("\n✅ Todas as tabelas tem dados.")
+    if diferentes:
+        erro("O banco espelho da Audit ficou diferente do principal: " + "; ".join(diferentes) +
+             ". Rode o workflow Sincronizar Espelho para igualar.")
+    if url_e:
+        print("✅ Banco espelho da Audit igual ao principal.")
 
 
 if __name__ == "__main__":

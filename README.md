@@ -85,9 +85,32 @@ Em *Settings → Secrets and variables → Actions*:
 | `SUPABASE_KEY` | chave `service_role` (ou `sb_secret_...`), em *Project Settings → API Keys* |
 | `OMIE_CREDENCIAIS` | JSON com `app_key`/`app_secret` de cada empresa, indexado por CNPJ (formato em `empresas.py`) |
 | `DATABASE_URL` | connection string do **Session pooler** — só para o workflow de provisionamento |
+| `SUPABASE_URL_ESPELHO` | URL do banco espelho da Audit, `https://<ref>.supabase.co` (opcional, ver abaixo) |
+| `SUPABASE_KEY_ESPELHO` | chave `sb_secret_...` (ou `service_role`) do banco espelho (opcional) |
 
 Secrets do GitHub são cifrados e **não podem ser lidos de volta**. Guarde uma cópia
 do JSON de `OMIE_CREDENCIAIS` em lugar seguro, fora do repositório.
+
+## Espelho no banco da Audit
+
+Desde 05/10/2026 a rotina grava os mesmos dados em dois bancos: o principal
+(`SUPABASE_URL`) e o espelho da Audit, projeto `omie-supabase-etl` da organização
+audit.tec (`SUPABASE_URL_ESPELHO`). O Omie é lido uma vez só.
+
+- `espelho.py`, ligado por `gravacao.py`: cada gravação (POST, PATCH, PUT, DELETE) que um
+  script faz na API REST do principal é repetida logo depois no espelho, com a chave do
+  espelho. Vale para o `requests` e para o cliente `supabase-py` (httpx). Leituras não são
+  repetidas. Falha no espelho deixa a execução vermelha, mas não muda o que é gravado no
+  principal; depois de 5 falhas seguidas o espelho para naquela etapa.
+- `checar_saude.py`: no início avisa se o espelho não responde (a carga do principal roda
+  mesmo assim); no fim compara a contagem de cada tabela nos dois bancos.
+- `sincronizar_espelho.py` (workflow **Sincronizar Espelho**, manual): copia o principal
+  inteiro para o espelho, tabela por tabela. Use na primeira carga e quando a checagem do fim
+  apontar diferença.
+- Sem os dois secrets do espelho, nada disso roda: a rotina volta a ser só o principal.
+
+O banco espelho foi criado com o mesmo `provisionar_banco_completo.sql` (estrutura idêntica:
+tabelas, chaves, índices, views e RLS).
 
 ## Recriar tudo do zero
 

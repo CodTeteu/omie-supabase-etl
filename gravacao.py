@@ -17,6 +17,8 @@ import sys
 
 import requests
 
+import espelho  # noqa: F401 - liga o espelho no banco da Audit, se SUPABASE_URL_ESPELHO estiver configurado
+
 _falhas = []
 
 

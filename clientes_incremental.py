@@ -1,5 +1,7 @@
 import os
 import requests
+
+import espelho  # noqa: F401 - repete as gravacoes no banco da Audit, se configurado
 import json
 import time
 import sys

@@ -25,6 +25,8 @@ jobs:
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
+        SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
         OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
       run: |
         python -u conta_corrente_rapida_etl.py

@@ -1,0 +1,44 @@
+name: Sincronizar Espelho (banco da Audit)
+
+# Copia o banco principal inteiro para o espelho da Audit (projeto omie-supabase-etl da
+# organizacao audit.tec). Use na primeira carga e quando a checagem do fim da rotina apontar
+# diferenca entre os dois bancos. Ver sincronizar_espelho.py e espelho.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tabelas:
+        description: "Tabelas separadas por espaco (vazio = todas)"
+        type: string
+        default: ""
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+
+    # Nao roda junto com a rotina noturna, que grava nas mesmas tabelas.
+    concurrency:
+      group: rotina-omie
+      cancel-in-progress: false
+
+    steps:
+      - name: Checando o código do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurando o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalando dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Copiando o principal para o espelho
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
+          SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
+        run: python -u sincronizar_espelho.py ${{ inputs.tabelas }}
