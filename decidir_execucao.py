@@ -1,20 +1,24 @@
 """
-Decide se a rotina agendada roda a carga.
+Decide se a rotina roda a carga neste disparo.
 
-O GitHub atrasa execucoes agendadas em horas e, sob carga, pode descarta-las
-sem aviso. Na primeira noite do horario novo (05/10/2026) a das 00:07 so
-chegou as 07:17; a rotina original, marcada para 00:00, comecava entre 04:46
-e 06:53. E um disparo que nunca chega nao roda nada e nao alerta ninguem.
-Por isso a rotina tem tres disparos (00:07, 04:07 e 08:07 em Brasilia), e
-este script evita que mais de um faca a carga no mesmo dia.
+A carga da noite comeca as 22:00 (Brasilia). Quem dispara na hora certa e o
+agendador do Supabase da Audit (pg_cron, ver agendador_supabase.sql), pela API
+do GitHub com o input `agendador`: disparo por API comeca em segundos. Os
+horarios do proprio GitHub (22:07, 02:07 e 06:07) ficam de reserva, porque ele
+atrasa agendamentos em horas e, sob carga, pode descarta-los sem aviso: em
+05 e 06/10/2026 o das 00:07 so chegou as 07:17 e as 07:05; em setembro, o das
+12:00 chegava entre 14:43 e 18:10.
 
 Roda a carga quando:
-  - o disparo e manual; ou
-  - os dados ainda nao foram atualizados HOJE (dia no horario de Brasilia) e
-    nao ha execucao anterior desta rotina em andamento.
+  - o disparo e manual (sem o input agendador); ou
+  - a carga DESTA NOITE ainda nao foi feita e nao ha execucao anterior desta
+    rotina em andamento.
 
-O criterio e o DIA, nao "ha quantas horas": uma carga que atrasou ate a tarde
-nao pode fazer a madrugada seguinte achar que os dados ainda estao frescos.
+A noite de carga vai das 20:00 de um dia as 20:00 do seguinte (Brasilia): a
+carga das 22:00 vale ate o fim do dia seguinte, e as reservas que o GitHub
+entregar de madrugada ou de manha encerram em segundos. O criterio e esse
+corte das 20:00, nao "ha quantas horas": uma carga que atrasou ate a tarde nao
+faz a noite seguinte achar que os dados ainda estao frescos.
 
 Na duvida (banco ou API do GitHub sem resposta), roda: melhor uma carga a
 mais do que um dia sem dados. So usa a biblioteca padrao do Python.
@@ -27,25 +31,31 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 BRASILIA = timezone(timedelta(hours=-3))  # sem horario de verao desde 2019
-PRINCIPAL = "7 3 * * *"                    # 00:07 em Brasilia; os outros sao reserva
+INICIO_DA_NOITE = 20                       # a noite de carga comeca as 20:00 em Brasilia
 
 
-def decidir(evento, disparo, ultima_carga, agora, anteriores_em_andamento):
+def inicio_da_noite(agora):
+    """Comeco da noite de carga em que `agora` esta: as 20:00 (Brasilia) mais recentes."""
+    local = agora.astimezone(BRASILIA)
+    inicio = local.replace(hour=INICIO_DA_NOITE, minute=0, second=0, microsecond=0)
+    return inicio if local >= inicio else inicio - timedelta(days=1)
+
+
+def decidir(evento, agendador, ultima_carga, agora, anteriores_em_andamento):
     """Regra de decisao, sem rede. Devolve (rodar, motivo, aviso)."""
-    if evento != "schedule":
+    if evento != "schedule" and not agendador:
         return True, "disparo manual: roda sempre", None
     if anteriores_em_andamento:
         return False, "outra execucao da rotina ja esta rodando", None
-    hoje = agora.astimezone(BRASILIA).date()
-    if ultima_carga is not None and ultima_carga.astimezone(BRASILIA).date() >= hoje:
-        quando = ultima_carga.astimezone(BRASILIA).strftime("%H:%M")
-        return False, f"dados ja atualizados hoje, as {quando} (Brasilia)", None
+    if ultima_carga is not None and ultima_carga >= inicio_da_noite(agora):
+        quando = ultima_carga.astimezone(BRASILIA).strftime("%d/%m %H:%M")
+        return False, f"carga desta noite ja feita, em {quando} (Brasilia)", None
     aviso = None
-    if disparo != PRINCIPAL:
-        aviso = ("A carga da meia-noite ainda nao aconteceu hoje (o GitHub atrasou ou nao "
-                 "disparou, ou ela falhou antes de gravar). Fazendo a carga agora, no "
-                 "disparo de reserva.")
-    return True, "dados ainda nao atualizados hoje", aviso
+    if not agendador:
+        aviso = ("A carga desta noite nao veio do agendador das 22:00 (Supabase da Audit). "
+                 "Fazendo agora, pelo agendamento de reserva do GitHub. Se repetir, confira o "
+                 "secret github_token_rotina no Vault e a tabela agendador.disparos.")
+    return True, "carga desta noite ainda nao feita", aviso
 
 
 def converter_data(texto):
@@ -98,6 +108,7 @@ def contar_anteriores_em_andamento():
 def main():
     evento = os.environ.get("EVENTO", "")
     disparo = os.environ.get("DISPARO", "")
+    agendador = os.environ.get("AGENDADOR", "").strip().lower() == "true"
     try:
         ultima = ler_ultima_carga()
     except Exception as e:
@@ -109,8 +120,8 @@ def main():
         print(f"Nao foi possivel consultar execucoes em andamento ({e}); na duvida, roda.")
         anteriores = 0
 
-    rodar, motivo, aviso = decidir(evento, disparo, ultima, datetime.now(timezone.utc), anteriores)
-    print(f"Disparo: {evento} {disparo}".strip())
+    rodar, motivo, aviso = decidir(evento, agendador, ultima, datetime.now(timezone.utc), anteriores)
+    print("Disparo: agendador do Supabase (22:00)" if agendador else f"Disparo: {evento} {disparo}".strip())
     print(f"Ultima carga: {ultima.astimezone(BRASILIA):%d/%m %H:%M} (Brasilia)" if ultima
           else "Ultima carga: desconhecida")
     print(f"Decisao: {'RODAR' if rodar else 'NAO RODAR'} - {motivo}")

@@ -13,7 +13,7 @@ pessoa. Veja [Recriar tudo do zero](#recriar-tudo-do-zero).
 
 ## Agendamento
 
-Uma rotina só, **todo dia à meia-noite** (horário de Brasília), atualiza tudo:
+Uma rotina só, **toda noite às 22h** (horário de Brasília), atualiza tudo:
 
 | Ordem | Etapa | Tabela |
 |---|---|---|
@@ -27,19 +27,25 @@ Uma rotina só, **todo dia à meia-noite** (horário de Brasília), atualiza tud
 
 Os cadastros (1 a 3) vêm primeiro porque as views cruzam os títulos com eles.
 
-O GitHub usa sempre UTC (03:07 UTC = 00:07 em Brasília) e trata agendamentos como
-"melhor esforço": eles **atrasam horas** e, sob carga, podem ser **descartados sem
-aviso**. Na prática, a "meia-noite" começa de manhã cedo: na primeira noite
-(05/10/2026) o disparo das 00:07 chegou às 07:17, e a rotina original, marcada para
-00:00, começava entre 04:46 e 06:53 (set/2026). Somando as ~2h30 de carga, **conte
-com os dados atualizados entre 7h e 10h**.
+**Quem dispara às 22h é o Supabase, não o GitHub.** O agendamento do GitHub é
+"melhor esforço": ele **atrasa horas** e, sob carga, pode **descartar disparos sem
+aviso** — em 05 e 06/10/2026 o disparo das 00:07 só chegou às 07:17 e às 07:05; em
+setembro, o das 12:00 chegava entre 14:43 e 18:10. Já um disparo pela API do GitHub
+começa em segundos. Por isso o `pg_cron` do Supabase da Audit chama a API às 22:00,
+com uma segunda tentativa às 22:30 ([`agendador_supabase.sql`](agendador_supabase.sql)).
+O token que ele usa (fine-grained, só este repositório, *Actions: Read and write*) fica
+no Vault do Supabase com o nome `github_token_rotina`, nunca no código. A carga leva
+cerca de 2h15: **conte com os dados atualizados por volta da meia-noite e meia**.
 
-Por isso há **três disparos**: 00:07 (principal), 04:07 e 08:07. Cada um começa
-checando, pela data de gravação no banco, se os dados já foram atualizados **hoje**
-(dia em Brasília) e se não há outra execução rodando
-([`decidir_execucao.py`](decidir_execucao.py)). Se a carga do dia já rodou ou está
-rodando, os outros encerram em segundos; se a meia-noite não veio, o próximo faz a
-carga e deixa um aviso.
+O agendamento do próprio GitHub fica de **reserva**: 22:07, 02:07 e 06:07 (no arquivo,
+em UTC: 01:07, 05:07 e 09:07). Cada disparo começa checando, pela data de gravação no
+banco, se a carga **desta noite** (desde as 20:00) já foi feita e se não há outra
+execução rodando ([`decidir_execucao.py`](decidir_execucao.py)). Se já foi feita ou está
+rodando, encerra em segundos; se o agendador do Supabase falhou, a reserva faz a carga,
+atrasada, e deixa um aviso.
+
+Para acompanhar o agendador, no SQL Editor do projeto da Audit:
+`select * from agendador.disparos order by id desc limit 20;`
 
 Os workflows "Sincronizar Clientes Isolado", "Sincronizar Departamentos Isolado" e
 "Rotina Rapida - Categorias" continuam disponíveis para rodar manualmente.

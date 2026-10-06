@@ -1,7 +1,7 @@
 name: Sincronizar Clientes Isolado
 
 on:
-  # Manual. Todo dia ja roda dentro da Rotina Noturna Omie ETL, a meia-noite.
+  # Manual. Toda noite ja roda dentro da Rotina Noturna Omie ETL, as 22h.
   workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
 
 jobs:

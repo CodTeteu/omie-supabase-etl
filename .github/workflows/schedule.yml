@@ -5,20 +5,26 @@ on:
     # ATENCAO: o cron do GitHub Actions e SEMPRE em UTC. O Brasil e UTC-3
     # (sem horario de verao desde 2019): subtraia 3h para Brasilia.
     #
-    # O GitHub ATRASA os agendamentos em horas e, sob carga, pode descartar
-    # disparos sem aviso. Na primeira noite (05/10/2026) o das 00:07 chegou as
-    # 07:17; a rotina original, marcada para 00:00, comecava entre 04:46 e 06:53.
-    # Por isso sao tres disparos. Cada um comeca pelo job "decidir": se os
-    # dados ja foram atualizados hoje ou outra execucao esta rodando, encerra
-    # em segundos; se a meia-noite nao veio, o proximo disparo faz a carga.
-    - cron: '7 3 * * *'    # 00:07 em Brasilia - principal, como na automacao original
-    - cron: '7 7 * * *'    # 04:07 em Brasilia - reserva
-    - cron: '7 11 * * *'   # 08:07 em Brasilia - reserva
+    # A carga comeca as 22:00 (Brasilia), disparada pelo agendador do Supabase
+    # da Audit pela API do GitHub (ver agendador_supabase.sql): disparo por API
+    # comeca em segundos. Os horarios abaixo sao RESERVA: o GitHub atrasa os
+    # agendamentos em horas (em 05 e 06/10/2026 o das 00:07 so chegou as 07:17
+    # e as 07:05) e, sob carga, pode descarta-los sem aviso. Cada disparo comeca
+    # pelo job "decidir": se a carga desta noite ja foi feita ou outra execucao
+    # esta rodando, encerra em segundos; se o agendador falhou, a reserva faz a
+    # carga e deixa um aviso.
+    - cron: '7 1 * * *'    # 22:07 em Brasilia - reserva do agendador das 22:00
+    - cron: '7 5 * * *'    # 02:07 em Brasilia - reserva
+    - cron: '7 9 * * *'    # 06:07 em Brasilia - reserva
 
   workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
     inputs:
       somente_manutencao:
         description: "Só testar o commit de manutenção (não roda a carga)"
+        type: boolean
+        default: false
+      agendador:
+        description: "Disparo do agendador do Supabase (segue as regras da noite: não repete a carga)"
         type: boolean
         default: false
 
@@ -52,9 +58,9 @@ jobs:
           fi
 
   decidir:
-    # Roda a carga se o disparo for manual, ou se os dados ainda nao foram
-    # atualizados hoje e nao ha execucao anterior em andamento. Ver
-    # decidir_execucao.py.
+    # Roda a carga se o disparo for manual, ou se a carga desta noite (desde as
+    # 20:00 de Brasilia) ainda nao foi feita e nao ha execucao anterior em
+    # andamento. Ver decidir_execucao.py.
     if: ${{ !inputs.somente_manutencao }}
     runs-on: ubuntu-latest
     permissions:
@@ -75,6 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           EVENTO: ${{ github.event_name }}
           DISPARO: ${{ github.event.schedule }}
+          AGENDADOR: ${{ inputs.agendador }}
         run: python3 decidir_execucao.py
 
   run-etl:
