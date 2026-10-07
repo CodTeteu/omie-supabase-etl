@@ -36,16 +36,40 @@ def resposta(status, texto=""):
 class SubstituirDadosEmpresa(unittest.TestCase):
     def setUp(self):
         gravacao._falhas.clear()
+        sem_espera = mock.patch.object(gravacao.time, "sleep")
+        sem_espera.start()
+        self.addCleanup(sem_espera.stop)
 
     def test_banco_inacessivel_registra_falha_e_nao_grava(self):
         # o caso de 16/09 a 04/10/2026: DNS do projeto nao resolvia
         with mock.patch.object(gravacao.requests, "delete",
-                               side_effect=requests.ConnectionError("getaddrinfo failed")), \
+                               side_effect=requests.ConnectionError("getaddrinfo failed")) as delete, \
              mock.patch.object(gravacao.requests, "post") as post:
             gravados = gravacao.substituir_dados_empresa(URL, {}, "tab", [{"a": 1}], EMPRESA, "Teste")
         self.assertEqual(gravados, 0)
+        self.assertEqual(delete.call_count, 3)  # tentou 3 vezes antes de desistir
         post.assert_not_called()
         self.assertEqual(len(gravacao._falhas), 1)
+
+    def test_extracao_incompleta_nao_apaga_so_atualiza(self):
+        registros = [{"a": i} for i in range(700)]
+        with mock.patch.object(gravacao.requests, "delete") as delete, \
+             mock.patch.object(gravacao.requests, "post", return_value=resposta(201)) as post:
+            gravados = gravacao.substituir_dados_empresa(URL, {}, "tab", registros, EMPRESA, "Teste",
+                                                         apagar_antes=False)
+        delete.assert_not_called()
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(gravados, 700)
+        self.assertEqual(gravacao._falhas, [])
+
+    def test_rede_instavel_repete_o_lote(self):
+        with mock.patch.object(gravacao.requests, "delete", return_value=resposta(204)), \
+             mock.patch.object(gravacao.requests, "post",
+                               side_effect=[requests.ConnectionError("reset"), resposta(503), resposta(201)]) as post:
+            gravados = gravacao.substituir_dados_empresa(URL, {}, "tab", [{"a": 1}], EMPRESA, "Teste")
+        self.assertEqual(gravados, 1)
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(gravacao._falhas, [])
 
     def test_limpeza_recusada_nao_grava_por_cima(self):
         with mock.patch.object(gravacao.requests, "delete", return_value=resposta(401, "JWT invalido")), \
@@ -65,14 +89,50 @@ class SubstituirDadosEmpresa(unittest.TestCase):
         self.assertEqual(gravacao._falhas, [])
 
     def test_lote_recusado_conta_so_o_que_entrou(self):
-        # o caso de setembro: lote com PK repetida recusado com erro 21000
+        # o caso de setembro: lote com PK repetida recusado com erro 21000 (repetido 3 vezes, sem sucesso)
         registros = [{"a": i} for i in range(1200)]
-        respostas = [resposta(201), resposta(500, '{"code":"21000"}'), resposta(201)]
+        recusa = resposta(500, '{"code":"21000"}')
+        respostas = [resposta(201), recusa, recusa, recusa, resposta(201)]
         with mock.patch.object(gravacao.requests, "delete", return_value=resposta(204)), \
              mock.patch.object(gravacao.requests, "post", side_effect=respostas):
             gravados = gravacao.substituir_dados_empresa(URL, {}, "tab", registros, EMPRESA, "Teste")
         self.assertEqual(gravados, 700)  # 500 + 200; o lote do meio caiu
         self.assertEqual(len(gravacao._falhas), 1)
+
+
+class ExtracaoCompleta(unittest.TestCase):
+    """A trava de antes de apagar: so apaga a empresa se veio tudo o que o Omie diz ter."""
+
+    def setUp(self):
+        gravacao._falhas.clear()
+
+    def test_veio_tudo(self):
+        with mock.patch.object(gravacao, "aviso") as aviso:
+            self.assertTrue(gravacao.extracao_completa("Teste", EMPRESA, 120, 120))
+        aviso.assert_not_called()
+
+    def test_faltou_registro_nao_apaga_e_avisa(self):
+        # ex.: o zoom progressivo nao recuperou um titulo, ou a lista veio cortada
+        with mock.patch.object(gravacao, "aviso") as aviso:
+            self.assertFalse(gravacao.extracao_completa("Teste", EMPRESA, 119, 120))
+        aviso.assert_called_once()
+        self.assertEqual(gravacao._falhas, [])  # nada se perde: e aviso, nao falha
+
+    def test_veio_a_mais_nao_e_falta(self):
+        # lancamento incluido no Omie enquanto a extracao rodava
+        self.assertTrue(gravacao.extracao_completa("Teste", EMPRESA, 121, 120))
+
+    def test_sem_total_informado_confia_na_paginacao(self):
+        self.assertTrue(gravacao.extracao_completa("Teste", EMPRESA, 50, None))
+
+
+class DeduplicarContasPagar(unittest.TestCase):
+    def test_um_titulo_por_codigo_fica_o_ultimo(self):
+        import contas_pagar_etl
+        saida = contas_pagar_etl.deduplicar([{"codigo_lancamento_omie": 1, "v": "a"},
+                                             {"codigo_lancamento_omie": 2, "v": "b"},
+                                             {"codigo_lancamento_omie": 1, "v": "c"}])
+        self.assertEqual(sorted((r["codigo_lancamento_omie"], r["v"]) for r in saida), [(1, "c"), (2, "b")])
 
 
 class Encerrar(unittest.TestCase):

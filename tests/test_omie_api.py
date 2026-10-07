@@ -53,6 +53,25 @@ class Classificar(unittest.TestCase):
         self.assertEqual(esperas, [5, 10, 20, 40])
 
 
+class TotalInformado(unittest.TestCase):
+    def test_nome_do_campo_muda_conforme_a_api(self):
+        self.assertEqual(omie_api.total_informado({"total_de_registros": 120}), 120)
+        self.assertEqual(omie_api.total_informado({"nTotRegistros": "35"}), 35)
+
+    def test_sem_total_na_resposta(self):
+        self.assertIsNone(omie_api.total_informado({}))
+        self.assertIsNone(omie_api.total_informado({"total_de_registros": "x"}))
+
+    def test_extracao_devolve_o_total_que_o_omie_informa(self):
+        import contas_receber_etl as m
+        pagina = resposta(200, dados={"total_de_registros": 2, "conta_receber_cadastro": [
+            {"codigo_lancamento_omie": 1}, {"codigo_lancamento_omie": 2}]})
+        fim = resposta(200, dados={"total_de_registros": 2, "conta_receber_cadastro": []})
+        with mock.patch.object(m.requests, "post", side_effect=[pagina, fim]), mock.patch.object(m.time, "sleep"):
+            registros, total = m.puxar_contas_receber(EMPRESA)
+        self.assertEqual((len(registros), total), (2, 2))
+
+
 class ChaveSuspensaUmaRequisicaoSo(unittest.TestCase):
     """
     Chave suspensa ou bloqueio 425: uma requisicao e para. Antes eram ate 10
@@ -104,7 +123,7 @@ class OutrosErros(unittest.TestCase):
                                side_effect=[resposta(500, "Erro interno do servidor"), ok]) as post, \
              mock.patch.object(sync_categorias.time, "sleep"), \
              mock.patch.object(sync_categorias, "empresa_fora") as fora:
-            sucesso, registros, _, bloqueio = sync_categorias.tentar_pagina("url", EMPRESA, 1, 50)
+            sucesso, registros, _, bloqueio, _ = sync_categorias.tentar_pagina("url", EMPRESA, 1, 50)
         fora.assert_not_called()
         self.assertTrue(sucesso)
         self.assertFalse(bloqueio)
@@ -119,7 +138,7 @@ class OutrosErros(unittest.TestCase):
              mock.patch.object(m.time, "sleep") as dormir:
             resultado = m.puxar_contas_receber(EMPRESA)
         dormir.assert_any_call(4)
-        self.assertEqual(resultado, [])
+        self.assertEqual(resultado, ([], None))
 
     def test_sem_registros_devolve_lista_vazia_e_nao_falha(self):
         import contas_receber_etl as m
@@ -127,7 +146,7 @@ class OutrosErros(unittest.TestCase):
                                return_value=resposta(500, "ERROR: Não existem registros para a página [1]!")) as post, \
              mock.patch.object(m.time, "sleep"):
             resultado = m.puxar_contas_receber(EMPRESA)
-        self.assertEqual(resultado, [])
+        self.assertEqual(resultado, ([], None))
         self.assertEqual(post.call_count, 1)
 
 

@@ -2,7 +2,6 @@ import os
 import requests
 import time
 import sys
-from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,10 +13,15 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("ERRO: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY não configuradas.")
     exit(1)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+HEADERS_SUPABASE = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal, resolution=merge-duplicates"  # sem apagar (extracao incompleta) vira upsert
+}
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
-from gravacao import empresa_fora, encerrar, falha
+from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def formatar_registro(dept, empresa_config):
@@ -47,13 +51,13 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
                 registros = []
                 if "departamentos" in data and len(data["departamentos"]) > 0:
                     registros = data["departamentos"]
-                return True, registros, total_paginas
+                return True, registros, total_paginas, omie_api.total_informado(data)
             else:
                 tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
                 if tipo == omie_api.PERMANENTE:
                     raise omie_api.ErroPermanente(f"HTTP {response.status_code}: {response.text[:150]}")
                 if tipo == omie_api.VAZIO:
-                    return True, [], 1
+                    return True, [], 1, None
                 print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s...")
                 time.sleep(espera)
         except omie_api.ErroPermanente:
@@ -62,7 +66,7 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
             espera = omie_api.espera_transitoria(tentativa)
             print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {espera}s...")
             time.sleep(espera)
-    return False, [], 0
+    return False, [], 0, None
 
 def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     """Quando uma página falha, divide em lotes menores para isolar o registro corrompido e resgatar os bons."""
@@ -75,7 +79,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     print(f"  🔬 ZOOM NÍVEL 1: Tentando recuperar página {pagina_falha} como sub-páginas {pag_inicio}-{pag_fim} (de {tamanho_zoom1} registros)...")
     
     for sub_pag in range(pag_inicio, pag_fim + 1):
-        sucesso, registros, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=3)
+        sucesso, registros, _, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=3)
         if sucesso:
             registros_recuperados.extend(registros)
             print(f"    ✅ Sub-página {sub_pag}: {len(registros)} departamentos recuperados")
@@ -88,7 +92,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
             print(f"    🔬 ZOOM NÍVEL 2: Tentando sub-página {sub_pag} como micro-páginas {micro_inicio}-{micro_fim} (1 dept cada)...")
             
             for micro_pag in range(micro_inicio, micro_fim + 1):
-                ok, regs, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=2)
+                ok, regs, _, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=2)
                 if ok:
                     registros_recuperados.extend(regs)
                 else:
@@ -100,14 +104,17 @@ def _puxar_departamentos_isolado(empresa_config):
     pagina = 1
     tem_mais = True
     total_paginas_conhecido = 999999
+    total_omie = None
     todos_registros_brutos = []
     url = "https://app.omie.com.br/api/v1/geral/departamentos/"
     
     while tem_mais:
-        sucesso, registros_pagina, total_paginas = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA)
-        
+        sucesso, registros_pagina, total_paginas, total_registros = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA)
+
         if sucesso:
             total_paginas_conhecido = total_paginas
+            if total_registros is not None:
+                total_omie = total_registros
             todos_registros_brutos.extend(registros_pagina)
             
             if pagina >= total_paginas_conhecido:
@@ -137,8 +144,8 @@ def _puxar_departamentos_isolado(empresa_config):
             continue
         chaves_processadas.add(pk)
         todos_registros.append(formatar_registro(dept, empresa_config))
-        
-    return todos_registros
+
+    return todos_registros, total_omie
 
 def main(empresa_alvo=None):
     print("=== INICIANDO SINCRONIZAÇÃO DE DEPARTAMENTOS ===")
@@ -153,56 +160,30 @@ def main(empresa_alvo=None):
     for empresa in empresas_para_rodar:
         print(f"\nSincronizando departamentos da empresa: {empresa['empresa']}")
         
-        departamentos = puxar_departamentos_isolado(empresa)
-        
-        if departamentos is None:
+        resultado = puxar_departamentos_isolado(empresa)
+
+        if resultado is None:
             empresa_fora("Departamentos", empresa, "falha na extracao do Omie")
             continue
-            
+        departamentos, total_omie = resultado
+
         if len(departamentos) == 0:
             print(f"   ℹ Nenhum departamento retornado pela API da Omie para a {empresa['empresa']}.")
             continue
-            
-        if departamentos:
-            print(f"   ✓ {len(departamentos)} departamentos obtidos da Omie. Enviando ao Supabase (UPSERT)...")
-            
-            try:
-                headers_supabase = {
-                    "apikey": SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal, resolution=merge-duplicates" # UPSERT
-                }
-                
-                # Insere em lotes
-                gravados = 0
-                for i in range(0, len(departamentos), 500):
-                    lote = departamentos[i:i+500]
-                    for tentativa in range(10):
-                        try:
-                            resp = requests.post(f"{SUPABASE_URL}/rest/v1/departamentos_omie", json=lote, headers=headers_supabase, timeout=60)
-                            if resp.status_code not in (200, 201):
-                                raise Exception(f"Erro na API do Supabase: {resp.text}")
-                            gravados += len(lote)
-                            break
-                        except Exception as e:
-                            print(f"     [!] Erro ao salvar lote {i} a {i+len(lote)}: {e}. Retentando ({tentativa+1}/10)...")
-                            time.sleep(5)
-                    else:
-                        falha(f"Departamentos / {empresa['empresa']}: lote {i} a {i+len(lote)} nao gravado apos 10 tentativas")
-                if gravados == len(departamentos):
-                    print(f"   ✅ Departamentos sincronizados com sucesso!")
-                else:
-                    print(f"   ⚠️ Apenas {gravados} de {len(departamentos)} departamentos gravados para {empresa['empresa']}")
-            except Exception as e:
-                falha(f"Departamentos / {empresa['empresa']}: erro de rede ao se comunicar com o Supabase ({e})")
+
+        # do zero por empresa: departamento excluido no Omie sai do banco
+        print(f"   ✓ {len(departamentos)} departamentos obtidos da Omie. Enviando ao Supabase...")
+        completo = extracao_completa("Departamentos", empresa, len(departamentos), total_omie)
+        substituir_dados_empresa(SUPABASE_URL.rstrip("/"), HEADERS_SUPABASE, "departamentos_omie", departamentos, empresa,
+                                 "Departamentos", apagar_antes=completo)
 
     print("\n=== SINCRONIZAÇÃO CONCLUÍDA ===")
     encerrar("Departamentos")
 
 def puxar_departamentos_isolado(empresa_config):
-    """Extrai departamentos da empresa. Devolve None se o Omie recusar de forma
-    permanente (chave suspensa, bloqueio 425) - sem insistir."""
+    """Extrai departamentos da empresa: (registros, total que o Omie informa).
+    Devolve None se o Omie recusar de forma permanente (chave suspensa,
+    bloqueio 425) - sem insistir."""
     try:
         return _puxar_departamentos_isolado(empresa_config)
     except omie_api.ErroPermanente as e:

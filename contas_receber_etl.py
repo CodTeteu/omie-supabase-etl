@@ -15,7 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
-from gravacao import empresa_fora, encerrar, substituir_dados_empresa
+from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def converter_data(data_br):
@@ -40,6 +40,7 @@ def tratar_json(obj):
 def puxar_contas_receber(empresa_config):
     pagina = 1
     tem_mais = True
+    total_omie = None
     todos_registros = []
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     
@@ -57,6 +58,7 @@ def puxar_contas_receber(empresa_config):
                 response = requests.post(url, json=body, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
+                    total_omie = omie_api.total_informado(data) or total_omie
                     if "conta_receber_cadastro" in data and len(data["conta_receber_cadastro"]) > 0:
                         for conta in data["conta_receber_cadastro"]:
                             registro = {
@@ -104,7 +106,7 @@ def puxar_contas_receber(empresa_config):
             print(f"FALHA CRÍTICA: Não foi possível baixar a página {pagina} da Omie após 3 tentativas.")
             return None # Sinaliza erro crítico na extração
             
-    return todos_registros
+    return todos_registros, total_omie
 
 def rodar_rotina_cr():
     print("Iniciando rotina de Contas a Receber (Multi-Tenant Omie -> Supabase)...")
@@ -120,14 +122,17 @@ def rodar_rotina_cr():
 
     for empresa in EMPRESAS:
         print(f"\nExtraindo Contas a Receber de: {empresa['empresa']}...")
-        contas = puxar_contas_receber(empresa)
-        
-        if contas is None:
+        resultado = puxar_contas_receber(empresa)
+
+        if resultado is None:
             empresa_fora("Contas a Receber", empresa, "falha na extracao do Omie")
             continue
-            
+        contas, total_omie = resultado
+
         if contas:
-            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "contas_receber_grupo", contas, empresa, "Contas a Receber")
+            completo = extracao_completa("Contas a Receber", empresa, len(contas), total_omie)
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "contas_receber_grupo", contas, empresa, "Contas a Receber",
+                                     apagar_antes=completo)
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
 

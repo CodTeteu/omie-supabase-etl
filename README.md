@@ -27,6 +27,22 @@ Uma rotina só, **toda noite às 22h** (horário de Brasília), atualiza tudo:
 
 Os cadastros (1 a 3) vêm primeiro porque as views cruzam os títulos com eles.
 
+**Toda tabela é gravada do zero, empresa por empresa** (`substituir_dados_empresa`, em
+[`gravacao.py`](gravacao.py)). Para cada empresa, a rotina baixa tudo do Omie, confere se
+veio a quantidade que o próprio Omie informa (`total_de_registros`) e só então apaga os
+dados daquela empresa e grava de novo. Assim, o que foi excluído no Omie também sai do
+banco. As travas:
+
+- extração com falha ou chave suspensa: a empresa não é tocada (os dados da véspera ficam);
+- veio menos do que o Omie informa (página que não veio, registro que o zoom progressivo
+  não recuperou): nada é apagado, só os registros que vieram são atualizados, com aviso;
+- a limpeza falhou: nada é gravado por cima;
+- cada chamada ao Supabase é repetida até 3 vezes em erro de rede ou HTTP 5xx.
+
+Até 07/10/2026, contas a pagar, clientes e departamentos só eram atualizados, nunca
+apagados: título excluído no Omie ficava no banco para sempre, congelado na última
+situação — em contas a pagar, 29 títulos (R$ 1,36 milhão) acumulados em 3 dias.
+
 **Quem dispara às 22h é o Supabase, não o GitHub.** O agendamento do GitHub é
 "melhor esforço": ele **atrasa horas** e, sob carga, pode **descartar disparos sem
 aviso** — em 05 e 06/10/2026 o disparo das 00:07 só chegou às 07:17 e às 07:05; em

@@ -15,7 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
-from gravacao import aviso, empresa_fora, encerrar, substituir_dados_empresa
+from gravacao import aviso, empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def converter_data(data_br):
@@ -30,6 +30,7 @@ def converter_data(data_br):
 def puxar_movimentos_financeiros(empresa_config):
     pagina = 1
     tem_mais = True
+    total_omie = None
     todos_registros = []
     url = "https://app.omie.com.br/api/v1/financas/mf/"
     
@@ -47,6 +48,7 @@ def puxar_movimentos_financeiros(empresa_config):
                 response = requests.post(url, json=body, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
+                    total_omie = omie_api.total_informado(data) or total_omie
                     if "movimentos" in data and len(data["movimentos"]) > 0:
                         for mov in data["movimentos"]:
                             det = mov.get("detalhes", {})
@@ -110,7 +112,7 @@ def puxar_movimentos_financeiros(empresa_config):
             print(f"FALHA CRÍTICA: Não foi possível baixar a página {pagina} da Omie após 3 tentativas.")
             return None # Retorna None para avisar a função principal que houve erro crítico na extração
             
-    return todos_registros
+    return todos_registros, total_omie
 
 def deduplicar_por_titulo(movimentos, empresa):
     """
@@ -149,15 +151,19 @@ def rodar_rotina_mf():
 
     for empresa in EMPRESAS:
         print(f"\nExtraindo Movimentos Financeiros de: {empresa['empresa']}...")
-        movimentos = puxar_movimentos_financeiros(empresa)
-        
-        if movimentos is None:
+        resultado = puxar_movimentos_financeiros(empresa)
+
+        if resultado is None:
             empresa_fora("Movimentos Financeiros", empresa, "falha na extracao do Omie")
             continue
-            
+        movimentos, total_omie = resultado
+
         if movimentos:
+            # o Omie conta movimentos; a conferencia vem antes de juntar os do mesmo titulo
+            completo = extracao_completa("Movimentos Financeiros", empresa, len(movimentos), total_omie)
             movimentos = deduplicar_por_titulo(movimentos, empresa)
-            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "movimentos_financeiros", movimentos, empresa, "Movimentos Financeiros")
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "movimentos_financeiros", movimentos, empresa,
+                                     "Movimentos Financeiros", apagar_antes=completo)
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
             

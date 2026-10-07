@@ -15,7 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
-from gravacao import empresa_fora, encerrar, substituir_dados_empresa
+from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def converter_data(data_br):
@@ -39,6 +39,7 @@ def converter_data_hora(data_br, hora_br):
 def puxar_conta_corrente(empresa_config):
     pagina = 1
     tem_mais = True
+    total_omie = None
     todos_registros = []
     url = "https://app.omie.com.br/api/v1/financas/contacorrentelancamentos/"
     
@@ -56,6 +57,7 @@ def puxar_conta_corrente(empresa_config):
                 response = requests.post(url, json=body, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
+                    total_omie = omie_api.total_informado(data) or total_omie
                     if "listaLancamentos" in data and len(data["listaLancamentos"]) > 0:
                         for lanc in data["listaLancamentos"]:
                             cabecalho = lanc.get("cabecalho", {})
@@ -116,7 +118,7 @@ def puxar_conta_corrente(empresa_config):
             print(f"FALHA CRÍTICA: Não foi possível baixar a página {pagina} da Omie após 3 tentativas.")
             return None # Sinaliza erro crítico na extração
             
-    return todos_registros
+    return todos_registros, total_omie
 
 def rodar_rotina_cc():
     print("Iniciando rotina de Conta Corrente (Multi-Tenant Omie -> Supabase)...")
@@ -132,14 +134,17 @@ def rodar_rotina_cc():
 
     for empresa in EMPRESAS:
         print(f"\nExtraindo Conta Corrente de: {empresa['empresa']}...")
-        lancamentos_cc = puxar_conta_corrente(empresa)
-        
-        if lancamentos_cc is None:
+        resultado = puxar_conta_corrente(empresa)
+
+        if resultado is None:
             empresa_fora("Conta Corrente", empresa, "falha na extracao do Omie")
             continue
-            
+        lancamentos_cc, total_omie = resultado
+
         if lancamentos_cc:
-            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "conta_corrente", lancamentos_cc, empresa, "Conta Corrente")
+            completo = extracao_completa("Conta Corrente", empresa, len(lancamentos_cc), total_omie)
+            substituir_dados_empresa(SUPABASE_URL, headers_supabase, "conta_corrente", lancamentos_cc, empresa, "Conta Corrente",
+                                     apagar_antes=completo)
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
 

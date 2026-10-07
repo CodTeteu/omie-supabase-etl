@@ -52,3 +52,20 @@ def classificar(status, texto, tentativa=0):
         return AGUARDAR, 60
 
     return TRANSITORIO, espera_transitoria(tentativa)
+
+
+def total_informado(dados):
+    """
+    Quantos registros o Omie diz que a consulta tem, ou None se a resposta nao
+    trouxer. O nome do campo muda conforme a API: total_de_registros (contas,
+    clientes, cadastros) ou nTotRegistros (movimentos, conta corrente).
+    Serve para conferir, antes de apagar, se a extracao veio inteira.
+    """
+    for campo in ("total_de_registros", "nTotRegistros"):
+        valor = dados.get(campo)
+        if valor is not None:
+            try:
+                return int(valor)
+            except (TypeError, ValueError):
+                return None
+    return None

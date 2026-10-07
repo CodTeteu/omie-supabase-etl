@@ -2,7 +2,6 @@ import os
 import requests
 import time
 import sys
-from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,10 +13,15 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("ERRO: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY não configuradas.")
     exit(1)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+HEADERS_SUPABASE = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal, resolution=merge-duplicates"  # sem apagar (extracao incompleta) vira upsert
+}
 
 from empresas import EMPRESAS as TODAS_EMPRESAS
-from gravacao import empresa_fora, encerrar, falha
+from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_tentativas=4):
@@ -41,21 +45,21 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, filtros_extra=None, max_
                 registros = []
                 if "clientes_cadastro" in data and len(data["clientes_cadastro"]) > 0:
                     registros = data["clientes_cadastro"]
-                return True, registros, total_paginas, False
+                return True, registros, total_paginas, False, omie_api.total_informado(data)
             else:
                 tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
                 if tipo == omie_api.PERMANENTE:
                     print(f"    ❌ Erro permanente do Omie para {empresa_config['empresa']} (HTTP {response.status_code}), sem repetir: {response.text[:150]}")
-                    return False, [], 0, True  # bloqueio definitivo
+                    return False, [], 0, True, None  # bloqueio definitivo
                 if tipo == omie_api.VAZIO:
-                    return True, [], 1, False
+                    return True, [], 1, False, None
                 print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s... Motivo: {response.text[:150]}")
                 time.sleep(espera)
         except Exception as e:
             wait_time = min(5 * (2 ** tentativa), 60) # Backoff: 5, 10, 20, 40, 60s
             print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {wait_time}s...")
             time.sleep(wait_time)
-    return False, [], 0, False
+    return False, [], 0, False, None
 
 def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original, filtros_extra=None):
     """Quando uma página falha, divide em lotes menores para isolar o registro corrompido e resgatar os bons."""
@@ -68,7 +72,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original, filtro
     print(f"  🔬 ZOOM NÍVEL 1: Tentando recuperar página {pagina_falha} como sub-páginas {pag_inicio}-{pag_fim} (de {tamanho_zoom1} registros)...")
     
     for sub_pag in range(pag_inicio, pag_fim + 1):
-        sucesso, registros, _, bloqueio = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, filtros_extra, max_tentativas=5)
+        sucesso, registros, _, bloqueio, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, filtros_extra, max_tentativas=5)
         if sucesso:
             registros_recuperados.extend(registros)
             print(f"    ✅ Sub-página {sub_pag}: {len(registros)} clientes recuperados")
@@ -81,7 +85,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original, filtro
             print(f"    🔬 ZOOM NÍVEL 2: Tentando sub-página {sub_pag} como micro-páginas {micro_inicio}-{micro_fim} (1 cliente cada)...")
             
             for micro_pag in range(micro_inicio, micro_fim + 1):
-                ok, regs, _, bloq = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, filtros_extra, max_tentativas=3)
+                ok, regs, _, bloq, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, filtros_extra, max_tentativas=3)
                 if ok:
                     registros_recuperados.extend(regs)
                 else:
@@ -99,8 +103,11 @@ def formatar_registro(cliente, empresa_config):
     }
 
 def puxar_clientes(empresa_config):
+    """Clientes ativos e inativos da empresa: (registros, total que o Omie informa), ou None se a chave
+    estiver suspensa."""
     TAMANHO_PAGINA = 50
     todos_registros_brutos = []
+    totais = []
     url = "https://app.omie.com.br/api/v1/geral/clientes/"
     
     for inativo in ["N", "S"]:
@@ -108,16 +115,19 @@ def puxar_clientes(empresa_config):
         pagina = 1
         tem_mais = True
         total_paginas_conhecido = 999999
+        total_passada = None
         filtros_extra = {"clientesFiltro": {"inativo": inativo}}
         
         while tem_mais:
-            sucesso, registros_pagina, total_paginas, bloqueio_definitivo = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA, filtros_extra)
+            sucesso, registros_pagina, total_paginas, bloqueio_definitivo, total_registros = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA, filtros_extra)
             
             if bloqueio_definitivo:
                 return None  # erro permanente: o chamador registra a empresa como fora
                 
             if sucesso:
                 total_paginas_conhecido = total_paginas
+                if total_registros is not None:
+                    total_passada = total_registros
                 todos_registros_brutos.extend(registros_pagina)
                 
                 if pagina >= total_paginas_conhecido:
@@ -134,7 +144,8 @@ def puxar_clientes(empresa_config):
                     todos_registros_brutos.extend(registros_zoom)
                     print(f"  🔬 Zoom recuperou {len(registros_zoom)} de {TAMANHO_PAGINA} clientes da página {pagina}")
                     pagina += 1
-                
+        totais.append(total_passada)
+
     todos_registros = []
     chaves_processadas = set()
     for cliente in todos_registros_brutos:
@@ -143,8 +154,9 @@ def puxar_clientes(empresa_config):
             continue
         chaves_processadas.add(pk)
         todos_registros.append(formatar_registro(cliente, empresa_config))
-        
-    return todos_registros
+
+    total_omie = None if None in totais else sum(totais)
+    return todos_registros, total_omie
 
 
 def run_sync_clientes(empresa_alvo=None):
@@ -159,33 +171,19 @@ def run_sync_clientes(empresa_alvo=None):
 
     for empresa in empresas_para_rodar:
         print(f"\nSincronizando clientes da empresa: {empresa['empresa']}")
-        clientes = puxar_clientes(empresa)
-        
-        if clientes is None:
+        resultado = puxar_clientes(empresa)
+
+        if resultado is None:
             empresa_fora("Clientes", empresa, "falha na extracao do Omie")
             continue
-            
+        clientes, total_omie = resultado
+
         if clientes:
+            # do zero por empresa: cliente excluido no Omie sai do banco
             print(f"   ✓ {len(clientes)} clientes obtidos da Omie. Enviando ao Supabase...")
-            gravados = 0
-            for i in range(0, len(clientes), 100):
-                lote = clientes[i:i+100]
-                for tentativa in range(5):
-                    try:
-                        supabase.table('clientes_grupo').upsert(
-                            lote, on_conflict="codigo_cliente_omie, empresa_cnpj"
-                        ).execute()
-                        gravados += len(lote)
-                        break
-                    except Exception as e:
-                        print(f"     [!] Erro ao salvar lote {i} a {i+len(lote)}: {e}. Retentando ({tentativa+1}/5)...")
-                        time.sleep(5)
-                else:
-                    falha(f"Clientes / {empresa['empresa']}: lote {i} a {i+len(lote)} nao gravado apos 5 tentativas")
-            if gravados == len(clientes):
-                print(f"   ✓ Clientes da {empresa['empresa']} sincronizados com sucesso!")
-            else:
-                print(f"   ⚠️ Apenas {gravados} de {len(clientes)} clientes gravados para {empresa['empresa']}")
+            completo = extracao_completa("Clientes", empresa, len(clientes), total_omie)
+            substituir_dados_empresa(SUPABASE_URL.rstrip("/"), HEADERS_SUPABASE, "clientes_grupo", clientes, empresa,
+                                     "Clientes", apagar_antes=completo)
         else:
             print(f"   [!] Nenhum cliente encontrado na Omie para {empresa['empresa']}.")
             

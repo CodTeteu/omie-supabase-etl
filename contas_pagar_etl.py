@@ -16,7 +16,7 @@ SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 # Lista de Empresas
 from empresas import EMPRESAS
-from gravacao import empresa_fora, encerrar, falha
+from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def converter_data(data_br):
@@ -118,13 +118,13 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
                 registros = []
                 if "conta_pagar_cadastro" in data and len(data["conta_pagar_cadastro"]) > 0:
                     registros = data["conta_pagar_cadastro"]
-                return True, registros, total_paginas
+                return True, registros, total_paginas, omie_api.total_informado(data)
             else:
                 tipo, espera = omie_api.classificar(response.status_code, response.text, tentativa)
                 if tipo == omie_api.PERMANENTE:
                     raise omie_api.ErroPermanente(f"HTTP {response.status_code}: {response.text[:150]}")
                 if tipo == omie_api.VAZIO:
-                    return True, [], 1
+                    return True, [], 1, None
                 print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com status {response.status_code}. Retentando em {espera}s...")
                 time.sleep(espera)
         except omie_api.ErroPermanente:
@@ -133,7 +133,7 @@ def tentar_pagina(url, empresa_config, pagina, tamanho, max_tentativas=4):
             espera = omie_api.espera_transitoria(tentativa)
             print(f"    Tentativa {tentativa+1} falhou na página {pagina} (tamanho {tamanho}) com erro: {e}. Retentando em {espera}s...")
             time.sleep(espera)
-    return False, [], 0
+    return False, [], 0, None
 
 def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     """
@@ -151,7 +151,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     print(f"  🔬 ZOOM NÍVEL 1: Tentando recuperar página {pagina_falha} como sub-páginas {pag_inicio}-{pag_fim} (de {tamanho_zoom1} registros cada)...")
     
     for sub_pag in range(pag_inicio, pag_fim + 1):
-        sucesso, registros, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=3)
+        sucesso, registros, _, _ = tentar_pagina(url, empresa_config, sub_pag, tamanho_zoom1, max_tentativas=3)
         if sucesso:
             registros_recuperados.extend(registros)
             print(f"    ✅ Sub-página {sub_pag}: {len(registros)} registros recuperados")
@@ -165,7 +165,7 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
             print(f"    🔬 ZOOM NÍVEL 2: Tentando sub-página {sub_pag} como micro-páginas {micro_inicio}-{micro_fim} (1 registro cada)...")
             
             for micro_pag in range(micro_inicio, micro_fim + 1):
-                ok, regs, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=2)
+                ok, regs, _, _ = tentar_pagina(url, empresa_config, micro_pag, tamanho_zoom2, max_tentativas=2)
                 if ok:
                     registros_recuperados.extend(regs)
                 else:
@@ -174,19 +174,23 @@ def zoom_progressivo(url, empresa_config, pagina_falha, tamanho_original):
     return registros_recuperados
 
 def _puxar_contas_pagar(empresa_config):
-    """Extrai todas as contas a pagar da Omie com Zoom Progressivo."""
+    """Extrai todas as contas a pagar da Omie com Zoom Progressivo.
+    Devolve (registros, total que o Omie informa)."""
     TAMANHO_PAGINA = 50
     pagina = 1
     tem_mais = True
     total_paginas_conhecido = 999999
+    total_omie = None
     todos_registros = []
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
     
     while tem_mais:
-        sucesso, registros_brutos, total_paginas = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA)
-        
+        sucesso, registros_brutos, total_paginas, total_registros = tentar_pagina(url, empresa_config, pagina, TAMANHO_PAGINA)
+
         if sucesso:
             total_paginas_conhecido = total_paginas
+            if total_registros is not None:
+                total_omie = total_registros
             for conta in registros_brutos:
                 todos_registros.append(formatar_registro(conta, empresa_config))
             
@@ -213,42 +217,31 @@ def _puxar_contas_pagar(empresa_config):
                 else:
                     pagina += 1
     
-    return todos_registros
+    return todos_registros, total_omie
 
 # ---------------------------------------------------------------------------
-# CAMADA 3: UPSERT ANTI-PERDA (sem DELETE)
+# CAMADA 3: GRAVACAO DO ZERO, EMPRESA POR EMPRESA (com trava anti-perda)
 # ---------------------------------------------------------------------------
+# Ate 07/10/2026 era so upsert, sem nunca apagar: titulo excluido no Omie ficava
+# no banco para sempre, congelado na ultima situacao. Em 3 dias acumularam 29
+# (R$ 1,36 mi, 23 deles como "A VENCER"). Agora a empresa e regravada do zero,
+# como nas outras tabelas - mas so quando a extracao vem inteira. Se o zoom nao
+# recuperar algum registro, nada e apagado (extracao_completa em gravacao.py).
 
-def enviar_para_supabase(registros, empresa_nome):
-    """Envia registros para o Supabase usando UPSERT (nunca deleta dados antigos)."""
-    headers_supabase = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal, resolution=merge-duplicates"
-    }
-    
-    tamanho_lote = 500
-    total_enviado = 0
-    
-    for i in range(0, len(registros), tamanho_lote):
-        lote = registros[i:i + tamanho_lote]
-        for tentativa in range(5):
-            try:
-                resp = requests.post(f"{SUPABASE_URL}/rest/v1/contas_pagar", json=lote, headers=headers_supabase, timeout=60)
-                if resp.status_code in (200, 201):
-                    total_enviado += len(lote)
-                    break
-                else:
-                    print(f"  ❌ Erro Supabase (lote {i}-{i+len(lote)}): {resp.text}. Tentativa {tentativa+1}/5...")
-                    time.sleep(3)
-            except Exception as e:
-                print(f"  ❌ Exceção Supabase (lote {i}-{i+len(lote)}): {e}. Tentativa {tentativa+1}/5...")
-                time.sleep(3)
-        else:
-            falha(f"Contas a Pagar / {empresa_nome}: lote {i}-{i+len(lote)} nao gravado apos 5 tentativas")
-    
-    return total_enviado
+HEADERS_SUPABASE = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal, resolution=merge-duplicates"
+}
+
+
+def deduplicar(registros):
+    """Um titulo por codigo (a chave da tabela): repetido no mesmo lote, o Supabase recusa o lote inteiro."""
+    unicos = {}
+    for r in registros:
+        unicos[r["codigo_lancamento_omie"]] = r
+    return list(unicos.values())
 
 # ---------------------------------------------------------------------------
 # CAMADA 2: SUPORTE A PARALELISMO (aceita nome da empresa como argumento)
@@ -268,7 +261,7 @@ def rodar_rotina_cp():
             print(f"❌ Empresa '{empresa_filtro}' não encontrada na lista!")
             exit(1)
     
-    print("Iniciando rotina de Contas a Pagar (com Zoom Progressivo + UPSERT)...\n")
+    print("Iniciando rotina de Contas a Pagar (com Zoom Progressivo, do zero por empresa)...\n")
     
     total_geral = 0
     for empresa in empresas_para_processar:
@@ -276,15 +269,13 @@ def rodar_rotina_cp():
         print(f"Extraindo Contas a Pagar de: {empresa['empresa']}...")
         print(f"{'='*60}")
         
-        contas_pagar = puxar_contas_pagar(empresa)
-        
+        contas_pagar, total_omie = puxar_contas_pagar(empresa) or ([], None)
+
         if contas_pagar:
-            enviados = enviar_para_supabase(contas_pagar, empresa['empresa'])
-            if enviados == len(contas_pagar):
-                print(f"✅ {enviados} registros salvos via UPSERT para {empresa['empresa']}")
-            else:
-                print(f"⚠️ Apenas {enviados} de {len(contas_pagar)} registros salvos para {empresa['empresa']}")
-            total_geral += enviados
+            contas_pagar = deduplicar(contas_pagar)
+            completo = extracao_completa("Contas a Pagar", empresa, len(contas_pagar), total_omie)
+            total_geral += substituir_dados_empresa(SUPABASE_URL, HEADERS_SUPABASE, "contas_pagar", contas_pagar,
+                                                    empresa, "Contas a Pagar", apagar_antes=completo)
         else:
             empresa_fora("Contas a Pagar", empresa, "nenhum registro retornado pelo Omie (sem titulos ou falha de acesso)")
     
@@ -294,8 +285,9 @@ def rodar_rotina_cp():
     encerrar("Contas a Pagar")
 
 def puxar_contas_pagar(empresa_config):
-    """Extrai contas a pagar da empresa. Devolve None se o Omie recusar de forma
-    permanente (chave suspensa, bloqueio 425) - sem insistir."""
+    """Extrai contas a pagar da empresa: (registros, total que o Omie informa).
+    Devolve None se o Omie recusar de forma permanente (chave suspensa,
+    bloqueio 425) - sem insistir."""
     try:
         return _puxar_contas_pagar(empresa_config)
     except omie_api.ErroPermanente as e:
