@@ -2,8 +2,9 @@
 -- PROVISIONAMENTO COMPLETO - ETL Omie -> Supabase
 -- Gerado em 04/10/2026. Idempotente: pode rodar mais de uma vez.
 --
--- Cria o ambiente inteiro do zero: 1 extensao, 8 tabelas, 8 primary keys
--- e 8 views. Nenhuma view depende de outra - todas leem apenas tabelas.
+-- Cria o ambiente inteiro do zero: 1 extensao, 8 tabelas, 8 primary keys,
+-- 7 indices por empresa e 8 views. Nenhuma view depende de outra - todas
+-- leem apenas tabelas.
 --
 -- PROCEDENCIA
 --   Tabelas, PKs e as views metas, metas_bruto e painel_contas_pagar foram
@@ -31,7 +32,7 @@
 -- Gerado por engenharia reversa do banco de producao (projeto tnbxmrathdctzkadekqa)
 -- em 02/09/2026. Aplicar no SQL Editor do projeto novo (avgadtgnhsqvyqwkjuvp).
 --
--- Ordem: extensoes -> tabelas -> primary keys -> views.
+-- Ordem: extensoes -> tabelas -> primary keys -> indices -> views.
 -- Idempotente: pode rodar mais de uma vez sem erro.
 -- =============================================================================
 
@@ -298,6 +299,20 @@ DO $$ BEGIN
   ALTER TABLE public.movimentos_financeiros ADD CONSTRAINT movimentos_financeiros_pkey PRIMARY KEY (id_movimento, empresa_cnpj);
 EXCEPTION WHEN duplicate_table OR invalid_table_definition THEN NULL;
 END $$;
+
+
+-- ======================= INDICES POR EMPRESA =======================
+-- A carga apaga e regrava cada empresa (DELETE ... WHERE empresa_cnpj = ...).
+-- Sem indice, cada limpeza percorre a tabela inteira; com varias ao mesmo
+-- tempo, estourava o limite de 8 s da API do Supabase (07/10/2026).
+
+CREATE INDEX IF NOT EXISTS categorias_omie_empresa_cnpj_idx ON public.categorias_omie (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS clientes_grupo_empresa_cnpj_idx ON public.clientes_grupo (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS conta_corrente_empresa_cnpj_idx ON public.conta_corrente (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS contas_pagar_empresa_cnpj_idx ON public.contas_pagar (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS contas_receber_grupo_empresa_cnpj_idx ON public.contas_receber_grupo (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS departamentos_omie_empresa_cnpj_idx ON public.departamentos_omie (empresa_cnpj);
+CREATE INDEX IF NOT EXISTS movimentos_financeiros_empresa_cnpj_idx ON public.movimentos_financeiros (empresa_cnpj);
 
 
 

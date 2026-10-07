@@ -8,7 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false # Se uma empresa falhar, as outras continuam rodando
-      max-parallel: 6  # Máximo 6 empresas ao mesmo tempo para não sobrecarregar
+      # Uma empresa por vez: cada uma apaga e regrava a sua parte de contas_pagar,
+      # e 6 limpezas ao mesmo tempo estouravam o limite de 8 s do Supabase (07/10/2026).
+      max-parallel: 1
       matrix:
         empresa:
           - "ALIANÇA LEGAL"
