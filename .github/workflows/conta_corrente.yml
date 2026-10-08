@@ -30,4 +30,4 @@ jobs:
         OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
       run: |
         python -u conta_corrente_rapida_etl.py
-        python -u contas_pagar_rapida_etl.py
+        python -u contas_pagar_etl.py
