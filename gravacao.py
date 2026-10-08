@@ -56,6 +56,28 @@ def empresa_fora(rotulo, empresa, motivo):
         falha(msg)
 
 
+def com_segunda_chance(empresas, processar, espera=120):
+    """
+    Roda processar(empresa, ultima_chance) para cada empresa. processar devolve
+    False quando a extracao do Omie falhou e a empresa merece outra tentativa.
+    Essas sao tentadas de novo no fim, depois de uma espera: instabilidade do
+    Omie costuma passar em minutos. Em 07/10/2026, a conta corrente da STUDIO
+    OPERACIONAL caiu com HTTP 500 tres vezes seguidas na mesma pagina, que
+    horas depois respondia normalmente - e a noite ficou vermelha por isso.
+
+    Empresa com suspensao conhecida (suspensa_desde em empresas.py) nao espera
+    a segunda chance: ja vai como ultima_chance.
+    """
+    pendentes = [e for e in empresas if not processar(e, bool(e.get("suspensa_desde")))]
+    if not pendentes:
+        return
+    nomes = ", ".join(e["empresa"] for e in pendentes)
+    print(f"\nSegunda chance em {espera}s para {len(pendentes)} empresa(s) cuja extracao falhou: {nomes}")
+    time.sleep(espera)
+    for empresa in pendentes:
+        processar(empresa, True)
+
+
 def extracao_completa(rotulo, empresa, baixados, total_omie):
     """
     Confere, antes de apagar, se veio do Omie tudo o que ele diz ter.

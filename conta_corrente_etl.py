@@ -15,7 +15,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SUPABASE_URL = SUPABASE_URL.rstrip('/')
 
 from empresas import EMPRESAS
-from gravacao import empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
+from gravacao import com_segunda_chance, empresa_fora, encerrar, extracao_completa, substituir_dados_empresa
 import omie_api
 
 def converter_data(data_br):
@@ -132,13 +132,15 @@ def rodar_rotina_cc():
 
     # O DELETE GLOBAL FOI REMOVIDO DAQUI POR SEGURANÇA!
 
-    for empresa in EMPRESAS:
+    def processar(empresa, ultima_chance):
         print(f"\nExtraindo Conta Corrente de: {empresa['empresa']}...")
         resultado = puxar_conta_corrente(empresa)
 
         if resultado is None:
+            if not ultima_chance:
+                return False  # tenta de novo no fim da rotina (com_segunda_chance)
             empresa_fora("Conta Corrente", empresa, "falha na extracao do Omie")
-            continue
+            return True
         lancamentos_cc, total_omie = resultado
 
         if lancamentos_cc:
@@ -147,6 +149,9 @@ def rodar_rotina_cc():
                                      apagar_antes=completo)
         else:
             print(f"Nenhum registro encontrado para {empresa['empresa']}.")
+        return True
+
+    com_segunda_chance(EMPRESAS, processar)
 
     print("\nFIM DA ROTINA DE CONTA CORRENTE!")
     encerrar("Conta Corrente")

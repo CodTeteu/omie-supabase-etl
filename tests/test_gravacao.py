@@ -126,6 +126,64 @@ class ExtracaoCompleta(unittest.TestCase):
         self.assertTrue(gravacao.extracao_completa("Teste", EMPRESA, 50, None))
 
 
+class SegundaChance(unittest.TestCase):
+    """Instabilidade do Omie costuma passar em minutos: quem falhou tenta de novo no fim."""
+
+    def setUp(self):
+        gravacao._falhas.clear()
+
+    def test_empresa_que_falhou_tenta_de_novo_no_fim(self):
+        chamadas = []
+
+        def processar(empresa, ultima_chance):
+            chamadas.append((empresa["empresa"], ultima_chance))
+            return ultima_chance or empresa["empresa"] != "B"  # B falha na primeira passada
+
+        with mock.patch.object(gravacao.time, "sleep") as dormir:
+            gravacao.com_segunda_chance([{"empresa": "A"}, {"empresa": "B"}, {"empresa": "C"}], processar)
+        self.assertEqual(chamadas, [("A", False), ("B", False), ("C", False), ("B", True)])
+        dormir.assert_called_once_with(120)
+
+    def test_sem_falha_nao_espera(self):
+        with mock.patch.object(gravacao.time, "sleep") as dormir:
+            gravacao.com_segunda_chance([{"empresa": "A"}], lambda empresa, ultima_chance: True)
+        dormir.assert_not_called()
+
+    def test_suspensa_conhecida_nao_espera_segunda_chance(self):
+        chamadas = []
+
+        def processar(empresa, ultima_chance):
+            chamadas.append((empresa["empresa"], ultima_chance))
+            return ultima_chance
+
+        with mock.patch.object(gravacao.time, "sleep") as dormir:
+            gravacao.com_segunda_chance([{"empresa": "GROWTH", "suspensa_desde": "2026-09-22"}], processar)
+        self.assertEqual(chamadas, [("GROWTH", True)])
+        dormir.assert_not_called()
+
+    def test_conta_corrente_se_recupera_sem_falha(self):
+        # o caso de 07/10/2026: HTTP 500 na pagina 122 da STUDIO OPERACIONAL, que voltou depois
+        import conta_corrente_etl as m
+        with mock.patch.object(m, "EMPRESAS", [EMPRESA]), \
+             mock.patch.object(m, "puxar_conta_corrente", side_effect=[None, ([{"codigo_lancamento": 1}], 1)]), \
+             mock.patch.object(m, "substituir_dados_empresa") as gravar, \
+             mock.patch.object(gravacao.time, "sleep"):
+            m.rodar_rotina_cc()  # nao deve sair com erro
+        gravar.assert_called_once()
+        self.assertEqual(gravacao._falhas, [])
+
+    def test_conta_corrente_falha_duas_vezes_vira_falha(self):
+        import conta_corrente_etl as m
+        with mock.patch.object(m, "EMPRESAS", [EMPRESA]), \
+             mock.patch.object(m, "puxar_conta_corrente", return_value=None) as puxar, \
+             mock.patch.object(m, "substituir_dados_empresa") as gravar, \
+             mock.patch.object(gravacao.time, "sleep"):
+            with self.assertRaises(SystemExit):
+                m.rodar_rotina_cc()
+        self.assertEqual(puxar.call_count, 2)
+        gravar.assert_not_called()
+
+
 class DeduplicarContasPagar(unittest.TestCase):
     def test_um_titulo_por_codigo_fica_o_ultimo(self):
         import contas_pagar_etl
