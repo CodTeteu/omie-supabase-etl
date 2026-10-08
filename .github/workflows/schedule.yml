@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checando o código do repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Mantendo o agendamento ativo
         run: |
@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checando o código do repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Decidindo se a carga roda neste disparo
         id: decisao
@@ -113,10 +113,10 @@ jobs:
 
     steps:
       - name: Checando o código do repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Configurando o Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
@@ -160,4 +160,9 @@ jobs:
 
       - name: Conferindo os dados gravados
         if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        env:
+          # banco das aprovacoes do BI de Repasse: uma consulta por noite para o Supabase
+          # (plano gratuito) nao pausar o projeto por falta de uso
+          APROVACOES_URL: ${{ secrets.APROVACOES_URL }}
+          APROVACOES_KEY: ${{ secrets.APROVACOES_KEY }}
         run: python checar_saude.py

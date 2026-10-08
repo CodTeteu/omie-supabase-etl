@@ -1263,6 +1263,8 @@ CREATE OR REPLACE VIEW public.view_faturamento_rateado AS
 
 -- view_inadimplencia
 -- origem: recuperada (fix_supabase.sql @ af5b3c2)
+-- ajustada em 08/10/2026: a situacao (status/cstatus) vinha em branco e a view voltava vazia;
+-- agora so entram titulos com saldo em aberto, e titulo sem CPF/CNPJ do cliente nao some.
 DROP VIEW IF EXISTS public.view_inadimplencia CASCADE;
 CREATE OR REPLACE VIEW public.view_inadimplencia AS 
  WITH base_mf AS (
@@ -1284,9 +1286,15 @@ CREATE OR REPLACE VIEW public.view_inadimplencia AS
            FROM ((movimentos_financeiros mf
              LEFT JOIN clientes_grupo oc ON (((oc.codigo_cliente_omie = mf.id_cliente_fornecedor) AND (oc.empresa_cnpj = (mf.empresa_cnpj)::text))))
              LEFT JOIN categorias_omie co ON ((((co.codigo)::text = (mf.categoria_codigo)::text) AND (co.empresa_cnpj = (mf.empresa_cnpj)::text))))
-          WHERE (((mf.natureza)::text = 'R'::text) AND (mf.data_vencimento >= '2010-01-01'::date) AND (mf.data_vencimento <= '2035-01-01'::date) AND ((mf.status)::text <> 'CANCELADO'::text) AND ((mf.cstatus)::text <> 'CANCELADO'::text) AND (NOT ((mf.cpf_cnpj)::text IN ( SELECT DISTINCT movimentos_financeiros.empresa_cnpj
-                   FROM movimentos_financeiros
-                  WHERE (movimentos_financeiros.empresa_cnpj IS NOT NULL)))))
+          WHERE mf.natureza::text = 'R'
+            AND mf.data_vencimento BETWEEN '2010-01-01'::date AND '2035-01-01'::date
+            AND coalesce(mf.status, '') <> 'CANCELADO'
+            AND coalesce(mf.cstatus, '') <> 'CANCELADO'
+            AND mf.valor_aberto > 0
+            AND (mf.cpf_cnpj IS NULL OR mf.cpf_cnpj::text NOT IN (
+                  SELECT DISTINCT movimentos_financeiros.empresa_cnpj
+                  FROM movimentos_financeiros
+                  WHERE movimentos_financeiros.empresa_cnpj IS NOT NULL))
         )
  SELECT row_number() OVER () AS id,
     codigo_lancamento_omie,

@@ -72,6 +72,22 @@ class TotalInformado(unittest.TestCase):
         self.assertEqual((len(registros), total), (2, 2))
 
 
+class MovimentosGravamSituacao(unittest.TestCase):
+    def test_situacao_e_valores_do_resumo_vao_para_o_registro(self):
+        # ate 08/10/2026 status/cstatus ficavam em branco e a view_inadimplencia vinha vazia
+        import movimentos_financeiros_etl as m
+        mov = {"detalhes": {"nCodTitulo": 7, "cStatus": "ATRASADO"},
+               "resumo": {"cLiquidado": "N", "nValAberto": 150.0, "nDesconto": 5.0, "nJuros": 1.5, "nMulta": 2.0}}
+        pagina = resposta(200, dados={"nTotRegistros": 1, "movimentos": [mov]})
+        fim = resposta(200, dados={"nTotRegistros": 1, "movimentos": []})
+        with mock.patch.object(m.requests, "post", side_effect=[pagina, fim]), mock.patch.object(m.time, "sleep"):
+            registros, total = m.puxar_movimentos_financeiros(EMPRESA)
+        r = registros[0]
+        self.assertEqual((r["status"], r["cstatus"], r["liquidado"]), ("ATRASADO", "ATRASADO", "N"))
+        self.assertEqual((r["valor_desconto"], r["valor_juros"], r["valor_multa"], r["valor_aberto"]), (5.0, 1.5, 2.0, 150.0))
+        self.assertEqual(total, 1)
+
+
 class ChaveSuspensaUmaRequisicaoSo(unittest.TestCase):
     """
     Chave suspensa ou bloqueio 425: uma requisicao e para. Antes eram ate 10

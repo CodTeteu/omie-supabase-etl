@@ -81,7 +81,15 @@ def puxar_movimentos_financeiros(empresa_config):
                                 "valor_titulo": det.get("nValorTitulo") or 0.0,
                                 "valor_pago": res.get("nValPago") or 0.0,
                                 "valor_liquido": res.get("nValLiquido") or 0.0,
-                                "valor_aberto": res.get("nValAberto") or 0.0
+                                "valor_aberto": res.get("nValAberto") or 0.0,
+                                # Situacao do titulo no Omie (RECEBIDO, ATRASADO, CANCELADO...). A view_inadimplencia
+                                # tira os cancelados por ela; ate 08/10/2026 ficava em branco e a view vinha vazia.
+                                "status": det.get("cStatus"),
+                                "cstatus": det.get("cStatus"),
+                                "liquidado": res.get("cLiquidado"),
+                                "valor_desconto": res.get("nDesconto") or 0.0,
+                                "valor_juros": res.get("nJuros") or 0.0,
+                                "valor_multa": res.get("nMulta") or 0.0
                             }
                             todos_registros.append(registro)
                         

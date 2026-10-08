@@ -109,6 +109,8 @@ Em *Settings → Secrets and variables → Actions*:
 | `DATABASE_URL` | connection string do **Session pooler** — só para o workflow de provisionamento |
 | `SUPABASE_URL_ESPELHO` | URL do banco espelho da Audit, `https://<ref>.supabase.co` (opcional, ver abaixo) |
 | `SUPABASE_KEY_ESPELHO` | chave `sb_secret_...` (ou `service_role`) do banco espelho (opcional) |
+| `APROVACOES_URL` | URL do projeto das aprovações do BI de Repasse, `https://<ref>.supabase.co` (opcional): a conferência final faz uma consulta por noite para o plano gratuito não pausar o projeto |
+| `APROVACOES_KEY` | chave pública (`sb_publishable_...`) desse projeto, a mesma que o relatório usa (opcional) |
 
 Secrets do GitHub são cifrados e **não podem ser lidos de volta**. Guarde uma cópia
 do JSON de `OMIE_CREDENCIAIS` em lugar seguro, fora do repositório.
