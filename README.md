@@ -37,7 +37,10 @@ banco. As travas:
 - veio menos do que o Omie informa (página que não veio, registro que o zoom progressivo
   não recuperou): nada é apagado, só os registros que vieram são atualizados, com aviso;
 - a limpeza falhou: nada é gravado por cima;
-- cada chamada ao Supabase é repetida até 3 vezes em erro de rede ou HTTP 5xx.
+- cada chamada ao Supabase é repetida até 3 vezes em erro de rede ou HTTP 5xx;
+- a chave de serviço que a rotina usa (`service_role`) tem até 60 s por operação na API,
+  em vez dos 8 s padrão: contar `contas_pagar` inteira leva ~6 s e estourou o limite logo
+  depois da carga em 11/10/2026 (ajuste em `provisionar_banco_completo.sql`).
 
 Até 07/10/2026, contas a pagar, clientes e departamentos só eram atualizados, nunca
 apagados: título excluído no Omie ficava no banco para sempre, congelado na última

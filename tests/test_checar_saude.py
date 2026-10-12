@@ -25,6 +25,40 @@ def resposta(status, texto=""):
     return r
 
 
+def contagem(total):
+    r = resposta(206)
+    r.headers = {"Content-Range": f"0-0/{total}"}
+    return r
+
+
+class Contar(unittest.TestCase):
+    """Em 11/10/2026 a contagem de contas_pagar estourou o limite da API logo depois da carga."""
+
+    def test_tempo_esgotado_repete_e_conta(self):
+        estouro = resposta(500, '{"code":"57014","message":"canceling statement due to statement timeout"}')
+        with mock.patch.object(checar_saude.requests, "get", side_effect=[estouro, contagem(70395)]) as get, \
+             mock.patch.object(checar_saude.time, "sleep") as dormir:
+            self.assertEqual(checar_saude.contar("https://x", {}, "contas_pagar"), (70395, None))
+        self.assertEqual(get.call_count, 2)
+        dormir.assert_called_once_with(15)
+
+    def test_erro_de_permissao_nao_repete(self):
+        with mock.patch.object(checar_saude.requests, "get", return_value=resposta(401, "Invalid API key")) as get, \
+             mock.patch.object(checar_saude.time, "sleep"):
+            total, problema = checar_saude.contar("https://x", {}, "contas_pagar")
+        self.assertIsNone(total)
+        self.assertIn("401", problema)
+        self.assertEqual(get.call_count, 1)
+
+    def test_rede_fora_tres_vezes_devolve_o_problema(self):
+        with mock.patch.object(checar_saude.requests, "get", side_effect=requests.ConnectionError("fora")) as get, \
+             mock.patch.object(checar_saude.time, "sleep"):
+            total, problema = checar_saude.contar("https://x", {}, "contas_pagar")
+        self.assertIsNone(total)
+        self.assertIn("fora", problema)
+        self.assertEqual(get.call_count, 3)
+
+
 class ManterAprovacoesAtivo(unittest.TestCase):
     def test_sem_configuracao_nao_consulta(self):
         with mock.patch.dict(os.environ, {}, clear=True), \

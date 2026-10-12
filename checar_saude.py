@@ -49,16 +49,32 @@ def aviso(msg):
     print(f"::warning::{msg[:500]}")
 
 
-def contar(url, headers, tabela):
-    """Total de registros da tabela (Content-Range com count=exact). Devolve (total, erro)."""
-    try:
-        r = requests.get(f"{url}/rest/v1/{tabela}?select=*&limit=1",
-                         headers={**headers, "Prefer": "count=exact"}, timeout=120)
-    except requests.RequestException as e:
-        return None, str(e)[:200]
-    if r.status_code not in (200, 206):
-        return None, f"HTTP {r.status_code} {r.text[:200]}"
-    return int(r.headers.get("Content-Range", "*/0").split("/")[-1]), None
+def contar(url, headers, tabela, tentativas=3):
+    """
+    Total de registros da tabela (Content-Range com count=exact). Devolve (total, erro).
+
+    Contar contas_pagar inteira le a tabela toda (~164 MB, o json_bruto fica na
+    propria linha): leva ~6 s e, logo depois da carga, com o banco reorganizando
+    a tabela, passou do limite de 8 s da API em 11/10/2026. Desde entao o
+    service_role tem statement_timeout de 60 s nos dois bancos, e aqui a
+    contagem e repetida (espera 15 s, 30 s) em erro de rede ou HTTP 5xx.
+    """
+    problema = None
+    for t in range(tentativas):
+        try:
+            r = requests.get(f"{url}/rest/v1/{tabela}?select=*&limit=1",
+                             headers={**headers, "Prefer": "count=exact"}, timeout=120)
+        except requests.RequestException as e:
+            problema = str(e)[:200]
+        else:
+            if r.status_code in (200, 206):
+                return int(r.headers.get("Content-Range", "*/0").split("/")[-1]), None
+            problema = f"HTTP {r.status_code} {r.text[:200]}"
+            if r.status_code < 500:
+                return None, problema
+        if t < tentativas - 1:
+            time.sleep(15 * (t + 1))
+    return None, problema
 
 
 def espelho():
@@ -134,6 +150,9 @@ def main():
                 print(f"✅ Banco espelho acessivel: {url_e}")
         return
 
+    # primeiro, porque os erros abaixo encerram a execucao (em 11/10/2026 a consulta ficou sem rodar)
+    problema_aprovacoes = manter_aprovacoes_ativo()
+
     linhas, vazias = [], []
     for tabela in TABELAS:
         total, problema = contar(url, headers, tabela)
@@ -151,8 +170,6 @@ def main():
             no_espelho[tabela] = total_e
             if problema or total_e != total:
                 diferentes.append(f"{tabela} ({total:,} no principal, {problema or format(total_e, ',')} no espelho)")
-
-    problema_aprovacoes = manter_aprovacoes_ativo()  # antes dos erros abaixo, que encerram a execucao
 
     print(f"{'TABELA':<26}{'REGISTROS':>12}" + (f"{'ESPELHO':>12}" if url_e else ""))
     for tabela, total in linhas:

@@ -315,6 +315,21 @@ CREATE INDEX IF NOT EXISTS departamentos_omie_empresa_cnpj_idx ON public.departa
 CREATE INDEX IF NOT EXISTS movimentos_financeiros_empresa_cnpj_idx ON public.movimentos_financeiros (empresa_cnpj);
 
 
+-- ================== LIMITE DE TEMPO DA API PARA A ROTINA ==================
+-- A API corta toda consulta em 8 s (statement_timeout do authenticator). A rotina
+-- usa a chave de servico (service_role): contar contas_pagar inteira leva ~6 s e
+-- passou dos 8 s logo depois da carga em 11/10/2026. O PostgREST aplica o
+-- statement_timeout do papel que assume, entao o service_role ganha 60 s;
+-- anon (3 s) e authenticated (8 s) nao mudam.
+
+DO $$ BEGIN
+  ALTER ROLE service_role SET statement_timeout = '60s';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'sem permissao para ajustar o service_role: rode este trecho como postgres';
+END $$;
+NOTIFY pgrst, 'reload config';
+
+
 
 
 -- ================================ VIEWS ================================
