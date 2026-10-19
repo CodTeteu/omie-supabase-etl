@@ -330,6 +330,36 @@ END $$;
 NOTIFY pgrst, 'reload config';
 
 
+-- =============== COMPACTACAO SEMANAL DAS TABELAS (pg_cron) ===============
+-- Toda noite a carga apaga e regrava as linhas de cada empresa. O espaco das
+-- linhas apagadas so e reaproveitado em parte e as tabelas crescem sem ter mais
+-- dados: em 19/10/2026 eram 331 MB para ~248 MB de dados e indices (contas_pagar
+-- com 49 MB vazios), e o plano gratuito do banco principal tem 500 MB.
+-- Aos domingos as 05:00 de Brasilia (08:00 UTC), sem carga nem Power BI, o VACUUM
+-- FULL reescreve cada tabela so com as linhas que existem; os dados nao mudam e
+-- cada tabela fica bloqueada por alguns segundos. Uma tarefa por grupo porque
+-- cada comando do postgres tem limite de 2 minutos; as menores primeiro, para o
+-- pico de espaco durante a reescrita ficar baixo.
+
+DO $$ BEGIN
+  -- No Supabase, "IF NOT EXISTS" com a extensao ja instalada ainda roda o script
+  -- interno dela e falha com "dependent privileges exist": so cria se faltar.
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog;
+  END IF;
+  BEGIN
+    GRANT USAGE ON SCHEMA cron TO postgres;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres;
+  EXCEPTION WHEN OTHERS THEN NULL;  -- o Supabase ja concede; regravar da "dependent privileges exist"
+  END;
+  PERFORM cron.schedule('compactar-tabelas-pequenas', '0 8 * * 0',
+    'VACUUM (FULL, ANALYZE) public.departamentos_omie, public.categorias_omie, public.extrato_bancario, '
+    'public.clientes_grupo, public.movimentos_financeiros, public.contas_receber_grupo');
+  PERFORM cron.schedule('compactar-conta-corrente', '10 8 * * 0', 'VACUUM (FULL, ANALYZE) public.conta_corrente');
+  PERFORM cron.schedule('compactar-contas-pagar', '20 8 * * 0', 'VACUUM (FULL, ANALYZE) public.contas_pagar');
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'compactacao semanal nao agendada (pg_cron indisponivel?): %', SQLERRM;
+END $$;
 
 
 -- ================================ VIEWS ================================

@@ -170,6 +170,14 @@ idempotente, pode rodar mais de uma vez. Cada view traz um comentário com sua o
 `security_invoker`. As chaves públicas (`anon`, `publishable`) não acessam nada;
 a automação (`service_role`) e o Power BI (usuário `postgres`) não são afetados.
 
+**Espaço:** a carga regrava tudo toda noite e o espaço das linhas apagadas só é
+reaproveitado em parte. Em 19/10/2026 as tabelas tinham 331 MB, dos quais ~83 MB vazios,
+e o plano gratuito do banco principal tem 500 MB. Aos domingos às 05:00 (Brasília), três
+tarefas do pg_cron rodam `VACUUM FULL` nas tabelas da carga, nos dois bancos, das menores
+para a maior (`contas_pagar` por último, às 05:20). Os dados não mudam; cada tabela fica
+bloqueada por alguns segundos. Para conferir a última execução:
+`select jobname, status, start_time, end_time from cron.job_run_details join cron.job using (jobid) order by start_time desc limit 6;`
+
 - **Tabelas:** `contas_receber_grupo`, `conta_corrente`, `movimentos_financeiros`,
   `contas_pagar`, `clientes_grupo`, `categorias_omie`, `departamentos_omie`, `extrato_bancario`
 - **Views:** `metas`, `metas_bruto`, `painel_contas_pagar`, `view_contas_pagar`,
