@@ -100,6 +100,7 @@ class Janelas(unittest.TestCase):
              mock.patch.object(decisao, "output") as output, \
              mock.patch.object(decisao, "datetime") as clock:
             clock.now.return_value = local(15, 5)
+            clock.strptime.side_effect = datetime.strptime
             decisao.main()
         self.assertIn(mock.call("rodar", "false"), output.call_args_list)
 
