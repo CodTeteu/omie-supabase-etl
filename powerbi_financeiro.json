@@ -1,0 +1,19 @@
+{
+  "workspace": "Financeiro",
+  "paralelismo": 4,
+  "modelos": [
+    "repasse",
+    "comissionamento",
+    "Painel_Financeiro",
+    "painel_ina",
+    "painel_recuperado",
+    "DRE_V2",
+    "DRE_Educacao",
+    "Operacoes",
+    "Fundo",
+    "Ranking_despesas",
+    "Ranking_Metas_V2",
+    "Compisao das Receitas",
+    "notas"
+  ]
+}

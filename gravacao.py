@@ -17,6 +17,8 @@ Toda tabela e gravada do zero, empresa por empresa (substituir_dados_empresa),
 para que nada excluido no Omie fique no banco. A unica excecao e a extracao
 incompleta (extracao_completa): ai nada e apagado.
 """
+import json
+import os
 import sys
 import time
 
@@ -93,6 +95,11 @@ def extracao_completa(rotulo, empresa, baixados, total_omie):
         return True
     aviso(f"{rotulo} / {empresa['empresa']}: vieram {baixados} de {total_omie} registros que o Omie informa. "
           "Nada foi apagado: so os que vieram foram atualizados; os demais ficam como estavam.")
+    destino = os.environ.get("ETL_INCOMPLETUDE_ARQUIVO")
+    if destino:
+        with open(destino, "a", encoding="utf-8") as arquivo:
+            arquivo.write(json.dumps({"rotina": rotulo, "empresa": empresa["empresa"],
+                                      "baixados": baixados, "esperados": total_omie}) + "\n")
     return False
 
 

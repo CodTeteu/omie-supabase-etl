@@ -46,6 +46,7 @@ def main():
     try:
         with conn, conn.cursor() as cur:
             cur.execute((RAIZ / "provisionar_banco_completo.sql").read_text(encoding="utf-8"))
+            cur.execute((RAIZ / "operacao_etl.sql").read_text(encoding="utf-8"))
     except psycopg2.Error as e:
         erro(f"Falha ao aplicar o schema (nada foi alterado): {e}")
     print("✅ Schema aplicado.\n")

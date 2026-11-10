@@ -3,7 +3,7 @@ name: Provisionar Banco (schema completo)
 # Recria tabelas, chaves e views a partir de provisionar_banco_completo.sql.
 # Idempotente: pode rodar mais de uma vez sem estragar nada.
 #
-# Use ao criar um projeto Supabase novo. Depois, rode a "Rotina Noturna Omie
+# Use ao criar um projeto Supabase novo. Depois, rode a "Rotina Omie
 # ETL" manualmente uma vez para preencher os dados.
 #
 # Requer o secret DATABASE_URL com a connection string do "Session pooler"

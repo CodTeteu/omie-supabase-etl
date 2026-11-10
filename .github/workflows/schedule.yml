@@ -1,4 +1,4 @@
-name: Rotina Noturna Omie ETL
+name: Rotina Omie ETL
 
 on:
   schedule:
@@ -16,6 +16,8 @@ on:
     - cron: '7 1 * * *'    # 22:07 em Brasilia - reserva do agendador das 22:00
     - cron: '7 5 * * *'    # 02:07 em Brasilia - reserva
     - cron: '7 9 * * *'    # 06:07 em Brasilia - reserva
+    - cron: '7 14 * * 1-5' # 11:07 em Brasilia - reserva da carga diurna
+    - cron: '7 18 * * 1-5' # 15:07 em Brasilia - reserva da segunda carga diurna
 
   workflow_dispatch: # Permite rodar manualmente clicando em um botão no Github
     inputs:
@@ -25,6 +27,15 @@ on:
         default: false
       agendador:
         description: "Disparo do agendador do Supabase (segue as regras da noite: não repete a carga)"
+        type: boolean
+        default: false
+      ciclo:
+        description: "Ciclo da carga (manha atualiza BI as 14h; tarde, as 18h)"
+        type: choice
+        options: [noturna, manha, tarde]
+        default: noturna
+      somente_validar:
+        description: "Validar controle e acesso aos 13 modelos, sem executar cargas"
         type: boolean
         default: false
 
@@ -61,17 +72,23 @@ jobs:
     # Roda a carga se o disparo for manual, ou se a carga desta noite (desde as
     # 20:00 de Brasilia) ainda nao foi feita e nao ha execucao anterior em
     # andamento. Ver decidir_execucao.py.
-    if: ${{ !inputs.somente_manutencao }}
+    if: ${{ !inputs.somente_manutencao && !inputs.somente_validar }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
     outputs:
       rodar: ${{ steps.decisao.outputs.rodar }}
+      ciclo: ${{ steps.decisao.outputs.ciclo }}
+      referencia: ${{ steps.decisao.outputs.referencia }}
 
     steps:
       - name: Checando o código do repositório
         uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
 
       - name: Decidindo se a carga roda neste disparo
         id: decisao
@@ -82,7 +99,10 @@ jobs:
           EVENTO: ${{ github.event_name }}
           DISPARO: ${{ github.event.schedule }}
           AGENDADOR: ${{ inputs.agendador }}
-        run: python3 decidir_execucao.py
+          CICLO: ${{ inputs.ciclo || 'noturna' }}
+        run: |
+          python3 -m pip install requests==2.31.0
+          python3 decidir_execucao.py
 
   run-etl:
     needs: decidir
@@ -101,6 +121,19 @@ jobs:
       SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
       SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
       OMIE_CREDENCIAIS: ${{ secrets.OMIE_CREDENCIAIS }}
+      GITHUB_TOKEN: ${{ github.token }}
+      EVENTO: ${{ github.event_name }}
+      DISPARO: ${{ github.event.schedule }}
+      AGENDADOR: ${{ inputs.agendador }}
+      CICLO: ${{ needs.decidir.outputs.ciclo }}
+      REFERENCIA: ${{ needs.decidir.outputs.referencia }}
+      POWERBI_TENANT: ${{ secrets.POWERBI_TENANT }}
+      POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
+      POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
+      PYTHONUNBUFFERED: '1'
+    permissions:
+      contents: read
+      actions: read
 
     # Atualiza TUDO todo dia: os 3 cadastros e as 4 tabelas principais.
     #
@@ -124,45 +157,98 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          echo "ETL_INCOMPLETUDE_ARQUIVO=$RUNNER_TEMP/omie-incompleto-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.jsonl" >> "$GITHUB_ENV"
 
       - name: Checando se o banco responde
         id: banco
         run: python checar_saude.py --antes
 
+      - name: Revalidando o ciclo depois da fila
+        id: revalidar
+        run: python decidir_execucao.py
+
+      - name: Aguardando atualizacoes financeiras anteriores
+        if: ${{ steps.revalidar.outputs.rodar_etl == 'true' }}
+        run: python atualizar_powerbi.py --aguardar
+
+      - name: Registrando o inicio da carga
+        id: inicio
+        if: ${{ success() && steps.revalidar.outputs.rodar_etl == 'true' }}
+        run: python controle_execucao.py iniciar
+
       # Cadastros primeiro: as views cruzam os titulos com eles.
       - name: Sincronizando Categorias
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: categorias
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python sync_categorias.py
 
       - name: Sincronizando Departamentos
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: departamentos
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python sync_departamentos.py
 
       - name: Sincronizando Clientes
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: clientes
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python sync_clientes.py
 
       - name: Executando o Script de Contas a Receber
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: receber
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python contas_receber_etl.py
 
       - name: Executando o Script de Conta Corrente
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: corrente
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python conta_corrente_etl.py
 
       - name: Executando o Script de Movimentos Financeiros
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: movimentos
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python movimentos_financeiros_etl.py
 
       - name: Executando o Script de Contas a Pagar
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: pagar
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         run: python contas_pagar_etl.py
 
       - name: Conferindo os dados gravados
-        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        id: conferencia
+        if: ${{ !cancelled() && steps.inicio.outcome == 'success' }}
         env:
           # banco das aprovacoes do BI de Repasse: uma consulta por noite para o Supabase
           # (plano gratuito) nao pausar o projeto por falta de uso
           APROVACOES_URL: ${{ secrets.APROVACOES_URL }}
           APROVACOES_KEY: ${{ secrets.APROVACOES_KEY }}
         run: python checar_saude.py
+
+      - name: Registrando o resultado completo do ETL
+        id: finalizar
+        if: ${{ always() && steps.inicio.outcome == 'success' }}
+        env:
+          ETL_SUCESSO: ${{ steps.categorias.outcome == 'success' && steps.departamentos.outcome == 'success' && steps.clientes.outcome == 'success' && steps.receber.outcome == 'success' && steps.corrente.outcome == 'success' && steps.movimentos.outcome == 'success' && steps.pagar.outcome == 'success' && steps.conferencia.outcome == 'success' }}
+        run: python controle_execucao.py finalizar
+
+      - name: Atualizando os 13 modelos financeiros no horario do ciclo
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' && steps.revalidar.outputs.rodar_powerbi == 'true' && (steps.finalizar.outputs.concluido == 'true' || steps.revalidar.outputs.rodar_etl == 'false') }}
+        run: python atualizar_powerbi.py
+
+  validar:
+    if: ${{ inputs.somente_validar }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      POWERBI_TENANT: ${{ secrets.POWERBI_TENANT }}
+      POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
+      POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - run: pip install requests==2.31.0
+      - run: python controle_execucao.py validar
+      - run: python atualizar_powerbi.py --validar

@@ -4,7 +4,7 @@ Extrai os dados financeiros de 24 empresas do grupo pela API do Omie e grava num
 banco Supabase, que alimenta os painéis do Power BI. Roda sozinho no GitHub Actions.
 
 ```
-API Omie ──► GitHub Actions (todo dia, meio-dia) ──► Supabase ──► Power BI
+API Omie ──► GitHub Actions ──► Supabase principal + Audit ──► Power BI
 ```
 
 Este repositório é **a fonte completa**: com ele dá para recriar o banco inteiro
@@ -13,7 +13,15 @@ pessoa. Veja [Recriar tudo do zero](#recriar-tudo-do-zero).
 
 ## Agendamento
 
-Uma rotina só, **toda noite às 22h** (horário de Brasília), atualiza tudo:
+O workflow **Rotina Omie ETL** atualiza tudo nos seguintes horarios de Brasilia:
+
+| Ciclo | Dias | Inicio do ETL | Inicio da rodada financeira |
+|---|---|---|---|
+| Noturna | Todos | 22h | Atualizacao matinal ja configurada no Fabric |
+| Manha | Segunda a sexta | 11h | 14h, apos validar a carga |
+| Tarde | Segunda a sexta | 15h | 18h, apos validar a carga |
+
+Cada carga executa estas etapas:
 
 | Ordem | Etapa | Tabela |
 |---|---|---|
@@ -56,12 +64,30 @@ O token que ele usa (fine-grained, só este repositório, *Actions: Read and wri
 no Vault do Supabase com o nome `github_token_rotina`, nunca no código. A carga leva
 cerca de 2h15: **conte com os dados atualizados por volta da meia-noite e meia**.
 
-O agendamento do próprio GitHub fica de **reserva**: 22:07, 02:07 e 06:07 (no arquivo,
-em UTC: 01:07, 05:07 e 09:07). Cada disparo começa checando, pela data de gravação no
-banco, se a carga **desta noite** (desde as 20:00) já foi feita e se não há outra
-execução rodando ([`decidir_execucao.py`](decidir_execucao.py)). Se já foi feita ou está
-rodando, encerra em segundos; se o agendador do Supabase falhou, a reserva faz a carga,
-atrasada, e deixa um aviso.
+O agendamento do proprio GitHub fica de **reserva**: 22:07, 02:07 e 06:07 para a noite,
+11:07 para a manha e 15:07 para a tarde. O controle privado `etl_operacao.execucoes`,
+no principal, registra a conclusao apenas depois das sete etapas e da conferencia.
+Uma extracao incompleta impede essa liberacao. A decisao em
+[`decidir_execucao.py`](decidir_execucao.py) usa esse registro por ciclo e data.
+
+Os disparos diurnos vem do `pg_cron` do banco principal, com uma reserva dez minutos
+depois, definidos em [`agendador_diurno.sql`](agendador_diurno.sql). O token GitHub
+fica no Vault como `github_token_rotina_diurna`. `etl_operacao.configuracao` define
+a ativacao e a primeira data permitida. A instalacao inicia desativada.
+
+As rodadas das 14h/18h sao disparadas pela API e ficam no historico de cada modelo.
+O catalogo aprovado e [`powerbi_financeiro.json`](powerbi_financeiro.json): 13 modelos
+do workspace Financeiro, quatro simultaneos, com ate duas solicitacoes por modelo
+em cada ciclo. A rotina espera o horario e a carga completa, concilia respostas
+perdidas pelo request ID e retoma apenas modelos pendentes. ETL e rodada financeira
+compartilham a trava `rotina-omie`: a carga das 15h aguarda a rodada anterior encerrar.
+Antes de outra carga diurna, tambem verifica atualizacoes financeiras ainda ativas
+no Power BI. O gateway Matheus precisa estar ligado e com acesso as demais fontes.
+
+Para configurar o controle, aplicar [`operacao_etl.sql`](operacao_etl.sql) no principal
+e depois o agendador diurno. A RPC usa SECURITY INVOKER e so a service_role tem
+permissao. Os registros de controle ficam exclusivamente no principal.
+O input **Somente validar** do workflow confere as conexoes sem solicitar cargas.
 
 Para acompanhar o agendador, no SQL Editor do projeto da Audit:
 `select * from agendador.disparos order by id desc limit 20;`
@@ -109,6 +135,9 @@ Em *Settings → Secrets and variables → Actions*:
 | `SUPABASE_URL` | URL do projeto, `https://<ref>.supabase.co` |
 | `SUPABASE_KEY` | chave `service_role` (ou `sb_secret_...`), em *Project Settings → API Keys* |
 | `OMIE_CREDENCIAIS` | JSON com `app_key`/`app_secret` de cada empresa, indexado por CNPJ (formato em `empresas.py`) |
+| `POWERBI_TENANT` | Tenant da conta de servico do Power BI |
+| `POWERBI_CLIENT_ID` | Aplicativo ja autorizado no workspace Financeiro |
+| `POWERBI_CLIENT_SECRET` | Credencial do aplicativo, guardada somente como secret |
 | `DATABASE_URL` | connection string do **Session pooler** — só para o workflow de provisionamento |
 | `SUPABASE_URL_ESPELHO` | URL do banco espelho da Audit, `https://<ref>.supabase.co` (opcional, ver abaixo) |
 | `SUPABASE_KEY_ESPELHO` | chave `sb_secret_...` (ou `service_role`) do banco espelho (opcional) |
@@ -149,7 +178,7 @@ Se o projeto Supabase for perdido, pausado sem volta ou precisar mudar de conta:
    (botão *Connect*): a conexão direta usa só IPv6, que o GitHub Actions não suporta.
 3. **Rode o workflow "Provisionar Banco (schema completo)"**. Ele cria as 8 tabelas,
    as 8 chaves, as 8 views e as regras de seguranca, e confere os 41 itens.
-4. **Rode a Rotina Noturna Omie ETL** manualmente. Ela já inclui os cadastros;
+4. **Rode a Rotina Omie ETL** manualmente. Ela já inclui os cadastros;
    a carga completa leva cerca de 2h30.
 5. Confira o resumo de contagens na página da última execução.
 
@@ -158,7 +187,7 @@ Pelo terminal, os mesmos passos:
 ```bash
 gh secret set DATABASE_URL --repo CodTeteu/omie-supabase-etl
 gh workflow run "Provisionar Banco (schema completo)" --repo CodTeteu/omie-supabase-etl
-gh workflow run "Rotina Noturna Omie ETL" --repo CodTeteu/omie-supabase-etl
+gh workflow run "Rotina Omie ETL" --repo CodTeteu/omie-supabase-etl
 ```
 
 ## Estrutura do banco
