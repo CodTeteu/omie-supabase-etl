@@ -90,6 +90,30 @@ class Janelas(unittest.TestCase):
             decisao.main()
         self.assertIn(mock.call("rodar", "false"), output.call_args_list)
 
+    def test_reserva_da_manha_nao_cancela_a_fila_da_tarde_por_bi_pendente(self):
+        estado = fonte()
+        estado["agenda"] = {"ativo": True, "inicio_em": "2026-11-11"}
+        ambiente = {"EVENTO": "schedule", "DISPARO": "7 14 * * 1-5"}
+        with mock.patch.dict(os.environ, ambiente, clear=True), \
+             mock.patch.object(decisao, "consultar", return_value=estado), \
+             mock.patch.object(decisao, "contar_anteriores_em_andamento", return_value=1), \
+             mock.patch.object(decisao, "output") as output, \
+             mock.patch.object(decisao, "datetime") as clock:
+            clock.now.return_value = local(15, 5)
+            decisao.main()
+        self.assertIn(mock.call("rodar", "false"), output.call_args_list)
+
+    def test_noite_aguarda_ciclo_diurno_que_ainda_esta_terminando(self):
+        ambiente = {"EVENTO": "workflow_dispatch", "AGENDADOR": "true", "CICLO": "noturna"}
+        with mock.patch.dict(os.environ, ambiente, clear=True), \
+             mock.patch.object(decisao, "consultar", return_value={}), \
+             mock.patch.object(decisao, "contar_anteriores_em_andamento", return_value=1), \
+             mock.patch.object(decisao, "output") as output, \
+             mock.patch.object(decisao, "datetime") as clock:
+            clock.now.return_value = local(22)
+            decisao.main()
+        self.assertIn(mock.call("rodar", "true"), output.call_args_list)
+
 
 class Completude(unittest.TestCase):
     def test_registro_incompleto_impede_liberacao_mesmo_com_etapas_verdes(self):

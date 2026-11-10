@@ -28,15 +28,18 @@ def inicio_da_noite(agora):
     return inicio if local >= inicio else inicio - timedelta(days=1)
 
 
+def janela_diurna_aberta(agora, ciclo):
+    local = agora.astimezone(BRASILIA)
+    inicio, fim = {"manha": (11, 15), "tarde": (15, 22)}[ciclo]
+    return local.weekday() < 5 and inicio <= local.hour < fim
+
+
 def decidir(evento, agendador, ultima_carga, agora, anteriores_em_andamento, ciclo="noturna"):
     """Regra de decisao, sem rede. Devolve (rodar, motivo, aviso)."""
     if evento != "schedule" and not agendador:
         return True, "disparo manual: roda sempre", None
-    local = agora.astimezone(BRASILIA)
-    if ciclo != "noturna":
-        fim = 15 if ciclo == "manha" else 22
-        if local.weekday() >= 5 or not inicio_ciclo(agora, ciclo).hour <= local.hour < fim:
-            return False, "fora da janela util deste ciclo", None
+    if ciclo != "noturna" and not janela_diurna_aberta(agora, ciclo):
+        return False, "fora da janela util deste ciclo", None
     if anteriores_em_andamento and ciclo == "noturna":
         return False, "outra execucao da rotina ja esta rodando", None
     if ultima_carga is not None and ultima_carga >= inicio_ciclo(agora, ciclo):
@@ -115,12 +118,16 @@ def main():
         print(f"Nao foi possivel consultar execucoes em andamento ({e}); na duvida, roda.")
         anteriores = 0
 
+    # Uma rodada diurna longa deixa a noite na fila. So um ciclo noturno ja
+    # iniciado deve fazer outro disparo da mesma noite desistir.
+    if ciclo == "noturna" and carga.get("estado") != "executando":
+        anteriores = 0
     rodar, motivo, aviso = decidir(evento, agendador, ultima, agora, anteriores, ciclo)
     mesma_referencia = referencia == inicio_ciclo(agora, ciclo).date().isoformat()
     if agendador or evento == "schedule":
         rodar = rodar and mesma_referencia
     completar_powerbi = (ciclo != "noturna" and ultima is not None and mesma_referencia
-                         and agora.astimezone(BRASILIA).weekday() < 5 and powerbi_pendente(estado))
+                         and janela_diurna_aberta(agora, ciclo) and powerbi_pendente(estado))
     agenda = estado.get("agenda") or {}
     if ciclo != "noturna" and (agendador or evento == "schedule"):
         habilitado = agenda.get("ativo") and referencia >= (agenda.get("inicio_em") or "9999-12-31")
