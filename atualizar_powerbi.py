@@ -25,7 +25,12 @@ CREDENCIAL = re.compile(r"credential|Unauthorized|Forbidden|AccessDenied|Cancell
 
 
 def data(texto):
-    return datetime.fromisoformat(texto.replace("Z", "+00:00"))
+    # Python 3.10 aceita fracoes de 3 ou 6 digitos. Postgres e Power BI
+    # tambem devolvem 1, 2, 4, 5 ou 7; normalizar preserva os microssegundos.
+    normalizado = re.sub(r"\.(\d+)(?=[+-]|$)",
+                        lambda m: "." + m.group(1)[:6].ljust(6, "0"),
+                        texto.replace("Z", "+00:00"))
+    return datetime.fromisoformat(normalizado)
 
 
 def ativo(linha):
@@ -254,8 +259,11 @@ def main():
     if ciclo not in controle.HORAS_POWERBI:
         raise RuntimeError("Este ciclo nao tem rodada financeira programada")
     alvo = controle.horario_powerbi(ciclo, referencia)
-    while controle.agora() < alvo:
-        time.sleep(min(45, (alvo - controle.agora()).total_seconds()))
+    while True:
+        restante = (alvo - controle.agora()).total_seconds()
+        if restante <= 0:
+            break
+        time.sleep(min(45, restante))
     rodada = Rodada(api, ciclo, referencia, controle.consultar(ciclo, referencia))
     erros = []
     with ThreadPoolExecutor(max_workers=configuracao["paralelismo"]) as pool:

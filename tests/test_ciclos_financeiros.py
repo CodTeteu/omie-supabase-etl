@@ -132,6 +132,25 @@ class Completude(unittest.TestCase):
             self.assertEqual(json.loads(arquivo.read_text())["baixados"], 9)
 
 
+class DatasDosServicos(unittest.TestCase):
+    def test_timestamp_real_do_supabase_que_falhou_no_python_310(self):
+        self.assertEqual(bi.data("2026-11-11T16:29:19.15586+00:00"),
+                         datetime(2026, 11, 11, 16, 29, 19, 155860, tzinfo=timezone.utc))
+
+    def test_precisoes_variaveis_do_powerbi(self):
+        for fracao, micros in [("1", 100000), ("12", 120000), ("123", 123000),
+                              ("1234", 123400), ("12345", 123450),
+                              ("123456", 123456), ("1234567", 123456)]:
+            for fuso in ("Z", "+00:00"):
+                with self.subTest(fracao=fracao, fuso=fuso):
+                    self.assertEqual(bi.data(f"2026-11-11T17:00:01.{fracao}{fuso}"),
+                                     datetime(2026, 11, 11, 17, 0, 1, micros, tzinfo=timezone.utc))
+
+    def test_sem_fracao_e_com_fuso_brasileiro(self):
+        self.assertEqual(bi.data("2026-11-11T14:00:00-03:00"),
+                         datetime(2026, 11, 11, 17, tzinfo=timezone.utc))
+
+
 class Atualizacoes(unittest.TestCase):
     def setUp(self):
         self.rpc = mock.patch.object(controle, "rpc", return_value={}).start()
