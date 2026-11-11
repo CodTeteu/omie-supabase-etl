@@ -1,6 +1,6 @@
 {
   "workspace": "Financeiro",
-  "paralelismo": 4,
+  "paralelismo": 2,
   "modelos": [
     "repasse",
     "comissionamento",

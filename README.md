@@ -77,7 +77,8 @@ a ativacao e a primeira data permitida. A instalacao inicia desativada.
 
 As rodadas das 14h/18h sao disparadas pela API e ficam no historico de cada modelo.
 O catalogo aprovado e [`powerbi_financeiro.json`](powerbi_financeiro.json): 13 modelos
-do workspace Financeiro, quatro simultaneos, com ate duas solicitacoes por modelo
+do workspace Financeiro, dois simultaneos para respeitar o limite de conexoes do espelho,
+com ate duas solicitacoes automaticas por modelo
 em cada ciclo. A rotina espera o horario e a carga completa, concilia respostas
 perdidas pelo request ID e retoma apenas modelos pendentes. ETL e rodada financeira
 compartilham a trava `rotina-omie`: a carga das 15h aguarda a rodada anterior encerrar.
