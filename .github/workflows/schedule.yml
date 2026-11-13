@@ -244,11 +244,15 @@ jobs:
       POWERBI_TENANT: ${{ secrets.POWERBI_TENANT }}
       POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
       POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
+      RUNDECK_URL: ${{ secrets.RUNDECK_URL }}
+      RUNDECK_USERNAME: ${{ secrets.RUNDECK_USERNAME }}
+      RUNDECK_PASSWORD: ${{ secrets.RUNDECK_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       - run: pip install requests==2.31.0
+      - run: python conferir_rede_replicas.py
       - run: python controle_execucao.py validar
       - run: python atualizar_powerbi.py --validar
