@@ -1,7 +1,7 @@
 name: Testes
 
-# Roda a cada push. Nao usa secrets nem banco: as respostas do Supabase sao
-# simuladas. Garante que a gravacao continua falhando de forma visivel.
+# Roda a cada push. Nao usa secrets: as respostas HTTP sao simuladas e o SQL
+# usa PostgreSQL local com dados sinteticos. Nunca conecta aos bancos reais.
 
 on:
   push:
