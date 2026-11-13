@@ -228,26 +228,6 @@ python contas_receber_etl.py
 python -m unittest discover -s tests -v     # testes, sem banco nem rede
 ```
 
-## Replicação nos dois novos Data Lakes
-
-Com a variável de repositório `REPLICAS_ATIVAS=true`, cada ciclo completo
-(11h e 15h úteis; 22h todos os dias, Brasília) publica um marcador no Audit.
-Aplicar `replicas_snapshot.sql` somente nesse espelho, com proprietário apto a
-criar o controle e triggers nas oito tabelas. O acesso REST é exclusivo da
-`service_role`; novas escritas invalidam a liberação na mesma transação.
-
-O job de réplica do Rundeck consulta o marcador a cada cinco minutos e só copia
-quando o controle do principal também confirma esse mesmo ciclo completo.
-Ele confere o conteúdo dos dois bancos antigos e replica uma única fotografia
-para `datalake.omie_etl` e `hml_datalake.omie`, preservando campos/permissões
-técnicas dos destinos. A implementação e as dez views ficam no repositório
-privado `Grupo-Studio/omie-datalake-etl`; as duas views adicionais PJ360 são
-provisionadas no principal a partir dessa definição homologada.
-
-Uma falha de publicação pode ser retomada pelo disparo de reserva sem repetir
-a extração. Nenhuma senha de banco é necessária no Actions para a réplica;
-as conexões ficam no Key Storage do Rundeck. O BI mantém as rodadas das 14h/18h.
-
 ## Pendências conhecidas
 
 - **STUDIO FACTORING** (desde jul/2026) e **STUDIO GROWTH** (desde 22/09/2026) estão
