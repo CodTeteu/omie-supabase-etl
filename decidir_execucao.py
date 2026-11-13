@@ -16,6 +16,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 from controle_execucao import consultar, inicio_ciclo, output
+from publicar_snapshot_replicas import pendente as publicacao_pendente
 
 BRASILIA = timezone(timedelta(hours=-3))  # sem horario de verao desde 2019
 INICIO_DA_NOITE = 20                       # a noite de carga comeca as 20:00 em Brasilia
@@ -128,11 +129,14 @@ def main():
         rodar = rodar and mesma_referencia
     completar_powerbi = (ciclo != "noturna" and ultima is not None and mesma_referencia
                          and janela_diurna_aberta(agora, ciclo) and powerbi_pendente(estado))
+    completar_replicas = (ultima is not None and mesma_referencia
+                         and (ciclo == 'noturna' or janela_diurna_aberta(agora,ciclo))
+                         and publicacao_pendente(estado))
     agenda = estado.get("agenda") or {}
     if ciclo != "noturna" and (agendador or evento == "schedule"):
         habilitado = agenda.get("ativo") and referencia >= (agenda.get("inicio_em") or "9999-12-31")
         if not habilitado:
-            rodar = completar_powerbi = False
+            rodar = completar_powerbi = completar_replicas = False
             motivo = "agendamento diurno ainda nao ativado para esta data"
     print(f"Disparo: agendador do Supabase ({ciclo})" if agendador else f"Disparo: {evento} {disparo}".strip())
     print(f"Ultima carga: {ultima.astimezone(BRASILIA):%d/%m %H:%M} (Brasilia)" if ultima
@@ -144,7 +148,8 @@ def main():
     output("referencia", referencia)
     output("rodar_etl", str(rodar).lower())
     output("rodar_powerbi", str(ciclo != "noturna" and (rodar or completar_powerbi)).lower())
-    output("rodar", str(rodar or completar_powerbi).lower())
+    output("rodar_replicas", str(rodar or completar_replicas).lower())
+    output("rodar", str(rodar or completar_powerbi or completar_replicas).lower())
 
 
 if __name__ == "__main__":

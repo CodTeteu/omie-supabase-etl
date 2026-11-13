@@ -95,6 +95,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
+          SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
+          REPLICAS_ATIVAS: ${{ vars.REPLICAS_ATIVAS }}
           GITHUB_TOKEN: ${{ github.token }}
           EVENTO: ${{ github.event_name }}
           DISPARO: ${{ github.event.schedule }}
@@ -131,6 +134,7 @@ jobs:
       POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
       POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
       PYTHONUNBUFFERED: '1'
+      REPLICAS_ATIVAS: ${{ vars.REPLICAS_ATIVAS }}
     permissions:
       contents: read
       actions: read
@@ -229,6 +233,10 @@ jobs:
           ETL_SUCESSO: ${{ steps.categorias.outcome == 'success' && steps.departamentos.outcome == 'success' && steps.clientes.outcome == 'success' && steps.receber.outcome == 'success' && steps.corrente.outcome == 'success' && steps.movimentos.outcome == 'success' && steps.pagar.outcome == 'success' && steps.conferencia.outcome == 'success' }}
         run: python controle_execucao.py finalizar
 
+      - name: Liberando a mesma carga para os dois novos Data Lakes
+        if: ${{ !cancelled() && vars.REPLICAS_ATIVAS == 'true' && (steps.finalizar.outputs.concluido == 'true' || steps.revalidar.outputs.rodar_etl == 'false') }}
+        run: python publicar_snapshot_replicas.py
+
       - name: Atualizando os 13 modelos financeiros no horario do ciclo
         if: ${{ !cancelled() && steps.banco.outcome == 'success' && steps.revalidar.outputs.rodar_powerbi == 'true' && (steps.finalizar.outputs.concluido == 'true' || steps.revalidar.outputs.rodar_etl == 'false') }}
         run: python atualizar_powerbi.py
@@ -244,15 +252,15 @@ jobs:
       POWERBI_TENANT: ${{ secrets.POWERBI_TENANT }}
       POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
       POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
-      RUNDECK_URL: ${{ secrets.RUNDECK_URL }}
-      RUNDECK_USERNAME: ${{ secrets.RUNDECK_USERNAME }}
-      RUNDECK_PASSWORD: ${{ secrets.RUNDECK_PASSWORD }}
+      SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
+      SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
+      REPLICAS_ATIVAS: ${{ vars.REPLICAS_ATIVAS }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       - run: pip install requests==2.31.0
-      - run: python conferir_rede_replicas.py
       - run: python controle_execucao.py validar
+      - run: python publicar_snapshot_replicas.py --validar
       - run: python atualizar_powerbi.py --validar
