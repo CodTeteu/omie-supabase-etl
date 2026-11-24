@@ -121,6 +121,34 @@ def _com_repeticao(metodo, *args, tentativas=3, **kwargs):
         time.sleep(3 * (t + 1))
 
 
+def _substituir_categorias(url, headers, registros, empresa):
+    """Substitui um catálogo completo em uma transação em cada banco."""
+    destino = f"{url}/rest/v1/rpc/omie_substituir_categorias"
+    try:
+        resposta = _com_repeticao(
+            requests.post,
+            destino,
+            headers={**headers, "Prefer": "return=representation"},
+            json={"p_empresa": empresa["cnpj"], "p_registros": registros},
+            timeout=60,
+        )
+    except requests.RequestException as erro:
+        falha(f"Categorias / {empresa['empresa']}: gravação indisponível ({type(erro).__name__})")
+        return 0
+    if resposta.status_code != 200:
+        falha(f"Categorias / {empresa['empresa']}: gravação recusada (HTTP {resposta.status_code})")
+        return 0
+    try:
+        gravadas = resposta.json()
+    except ValueError:
+        gravadas = None
+    if gravadas != len(registros):
+        falha(f"Categorias / {empresa['empresa']}: quantidade gravada não confirmada")
+        return 0
+    print(f"✅ {gravadas} categorias gravadas para {empresa['empresa']}")
+    return gravadas
+
+
 def substituir_dados_empresa(url, headers, tabela, registros, empresa, rotulo, tamanho_lote=500,
                              apagar_antes=True):
     """
@@ -133,6 +161,9 @@ def substituir_dados_empresa(url, headers, tabela, registros, empresa, rotulo, t
     atualiza os registros que vieram, sem apagar nenhum - os headers precisam
     pedir "resolution=merge-duplicates".
     """
+    if tabela == "categorias_omie" and apagar_antes:
+        return _substituir_categorias(url, headers, registros, empresa)
+
     nome = empresa["empresa"]
     if apagar_antes:
         print(f"Limpando base de dados antiga de {tabela} da empresa {nome}...")

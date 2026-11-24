@@ -62,6 +62,32 @@ class SubstituirDadosEmpresa(unittest.TestCase):
         self.assertEqual(gravados, 700)
         self.assertEqual(gravacao._falhas, [])
 
+    def test_catalogo_completo_usa_uma_unica_gravacao(self):
+        registros = [{"codigo": "1", "empresa_cnpj": EMPRESA["cnpj"]}]
+        retorno = resposta(200)
+        retorno.json.return_value = len(registros)
+        with mock.patch.object(gravacao.requests, "delete") as delete, \
+             mock.patch.object(gravacao.requests, "post", return_value=retorno) as post:
+            gravados = gravacao.substituir_dados_empresa(URL, {}, "categorias_omie", registros, EMPRESA, "Categorias")
+        self.assertEqual(gravados, 1)
+        delete.assert_not_called()
+        post.assert_called_once_with(
+            f"{URL}/rest/v1/rpc/omie_substituir_categorias",
+            headers={"Prefer": "return=representation"},
+            json={"p_empresa": EMPRESA["cnpj"], "p_registros": registros},
+            timeout=60,
+        )
+
+    def test_catalogo_parcial_continua_sem_apagar_dados(self):
+        registros = [{"codigo": "1", "empresa_cnpj": EMPRESA["cnpj"]}]
+        with mock.patch.object(gravacao.requests, "delete") as delete, \
+             mock.patch.object(gravacao.requests, "post", return_value=resposta(201)) as post:
+            gravados = gravacao.substituir_dados_empresa(URL, {}, "categorias_omie", registros, EMPRESA, "Categorias",
+                                                         apagar_antes=False)
+        self.assertEqual(gravados, 1)
+        delete.assert_not_called()
+        self.assertEqual(post.call_args.args, (f"{URL}/rest/v1/categorias_omie",))
+
     def test_rede_instavel_repete_o_lote(self):
         with mock.patch.object(gravacao.requests, "delete", return_value=resposta(204)), \
              mock.patch.object(gravacao.requests, "post",
