@@ -244,10 +244,7 @@ with
       cc.codigo_lancamento as codigo_lancamento_omie,
       'PAGO (No Banco)'::text as status_titulo,
       cc.id_cliente_fornecedor as codigo_cliente_fornecedor,
-      COALESCE(
-        cat.descricao,
-        'Despesa Bancária / Direta'::character varying
-      ) as categoria,
+      cat.descricao AS categoria,
       dep_omie.descricao as departamento,
       case when REGEXP_REPLACE(cl.cnpj_cpf, '\D', '', 'g') = any (
           array[
@@ -294,7 +291,8 @@ with
       ) as valor_original,
       0::numeric as valor_juros,
       0::numeric as valor_multa,
-      0::numeric as valor_desconto
+      0::numeric AS valor_desconto,
+      COALESCE(upper(btrim(cc.origem::text)) = 'TRAP', false) AS is_transferencia_interna
     from
       conta_corrente cc
       left join lateral jsonb_to_recordset(
@@ -363,7 +361,8 @@ select
   base_cp.valor_original,
   base_cp.valor_juros,
   base_cp.valor_multa,
-  base_cp.valor_desconto
+  base_cp.valor_desconto,
+  false AS is_transferencia_interna
 from
   base_cp
 where base_cp.valor_final <= 0
@@ -379,7 +378,10 @@ select
   base_cc.codigo_lancamento_omie,
   base_cc.status_titulo,
   base_cc.codigo_cliente_fornecedor,
-  base_cc.categoria,
+  CASE
+      WHEN base_cc.is_transferencia_interna THEN 'Saída de Transferência'::character varying
+      ELSE base_cc.categoria
+  END AS categoria,
   base_cc.departamento,
   base_cc.is_intercompany,
   base_cc.valor_final,
@@ -387,7 +389,8 @@ select
   base_cc.valor_original,
   base_cc.valor_juros,
   base_cc.valor_multa,
-  base_cc.valor_desconto
+  base_cc.valor_desconto,
+  base_cc.is_transferencia_interna
 from
   base_cc
 where base_cc.valor_final <= 0;

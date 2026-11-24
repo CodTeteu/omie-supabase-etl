@@ -955,7 +955,7 @@ CREATE OR REPLACE VIEW public.painel_contas_pagar AS
             cc.codigo_lancamento AS codigo_lancamento_omie,
             'PAGO (No Banco)'::text AS status_titulo,
             cc.id_cliente_fornecedor AS codigo_cliente_fornecedor,
-            COALESCE(cat.descricao, 'Despesa Bancária / Direta'::character varying) AS categoria,
+            cat.descricao AS categoria,
             dep_omie.descricao AS departamento,
                 CASE
                     WHEN regexp_replace(cl.cnpj_cpf, '\D'::text, ''::text, 'g'::text) = ANY (ARRAY['12340921000182'::text, '62700834000167'::text, '44158057000199'::text, '01501108000120'::text, '23382154000190'::text, '42622192000118'::text, '56378880000199'::text, '36657397000136'::text, '39287808000137'::text, '36480461000156'::text, '27057563000172'::text, '36530240000145'::text, '39484812000195'::text, '37852789000119'::text, '42380661000130'::text, '14723195000102'::text, '34349108000106'::text, '42275720000100'::text, '08865854000142'::text, '36685910000100'::text, '47244267053'::text, '57341084000144'::text, '23448109000191'::text, '11863345000195'::text, '39349860000170'::text, '58420510000106'::text, '48552493000107'::text, '44189727000134'::text, '53192862000120'::text]) THEN true
@@ -978,7 +978,8 @@ CREATE OR REPLACE VIEW public.painel_contas_pagar AS
                 END::numeric * COALESCE(cx."nValCateg", abs(cc.valor)) * (COALESCE(dx."nPerDep", dx."nPerc", 100::numeric) / 100.0), 2) AS valor_original,
             0::numeric AS valor_juros,
             0::numeric AS valor_multa,
-            0::numeric AS valor_desconto
+            0::numeric AS valor_desconto,
+            COALESCE(upper(btrim(cc.origem::text)) = 'TRAP', false) AS is_transferencia_interna
            FROM conta_corrente cc
              LEFT JOIN LATERAL jsonb_to_recordset(
                 CASE
@@ -1013,7 +1014,8 @@ CREATE OR REPLACE VIEW public.painel_contas_pagar AS
     base_cp.valor_original,
     base_cp.valor_juros,
     base_cp.valor_multa,
-    base_cp.valor_desconto
+    base_cp.valor_desconto,
+    false AS is_transferencia_interna
    FROM base_cp
   WHERE base_cp.valor_final <= 0::numeric
 UNION ALL
@@ -1027,7 +1029,10 @@ UNION ALL
     base_cc.codigo_lancamento_omie,
     base_cc.status_titulo,
     base_cc.codigo_cliente_fornecedor,
-    base_cc.categoria,
+    CASE
+        WHEN base_cc.is_transferencia_interna THEN 'Saída de Transferência'::character varying
+        ELSE base_cc.categoria
+    END AS categoria,
     base_cc.departamento,
     base_cc.is_intercompany,
     base_cc.valor_final,
@@ -1035,7 +1040,8 @@ UNION ALL
     base_cc.valor_original,
     base_cc.valor_juros,
     base_cc.valor_multa,
-    base_cc.valor_desconto
+    base_cc.valor_desconto,
+    base_cc.is_transferencia_interna
    FROM base_cc
   WHERE base_cc.valor_final <= 0::numeric;
 
