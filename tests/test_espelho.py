@@ -185,10 +185,37 @@ class Httpx(Base):
 
 
 class Sincronizar(unittest.TestCase):
-    def test_valores_do_filtro_in_vao_entre_aspas(self):
-        self.assertEqual(sincronizar_espelho.valor_in("1.01.02"), '"1.01.02"')
-        self.assertEqual(sincronizar_espelho.valor_in('a"b'), '"a\\"b"')
-        self.assertEqual(sincronizar_espelho.valor_in(123), '"123"')
+    def test_restaura_categoria_ausente_e_corrige_categoria_parcial(self):
+        chave = ("codigo", "empresa_cnpj")
+        tabela = "categorias_omie"
+        f = {("1", "braga"): {"descricao": "Saída de Transferência"},
+             ("1", "audit"): {"descricao": "Taxas Bancárias"}}
+        destino = {("1", "audit"): {"descricao": None}, ("2", "antiga"): {"descricao": "Anterior"}}
+        principal, espelho = mock.Mock(), mock.Mock()
+        principal.fotografia.return_value = f
+        espelho.fotografia.side_effect = [destino, {**destino, **f}]
+        resultado = sincronizar_espelho.reconciliar(principal, espelho, tabela, chave)
+        espelho.upsert.assert_called_once_with(tabela, chave, list(f.values()))
+        self.assertEqual(resultado, (2, 3, 0, 0, 1))
+
+    def test_fonte_incompleta_nunca_grava_o_espelho(self):
+        principal, espelho = mock.Mock(), mock.Mock()
+        principal.fotografia.side_effect = sincronizar_espelho.ErroDeSincronizacao("página faltando")
+        with self.assertRaises(sincronizar_espelho.ErroDeSincronizacao):
+            sincronizar_espelho.reconciliar(principal, espelho, "categorias_omie", ("codigo", "empresa_cnpj"))
+        self.assertEqual(espelho.mock_calls, [])
+
+    def test_upsert_repassa_chave_composta_e_repite_522(self):
+        cliente = mock.Mock()
+        cliente.request.side_effect = [resposta(522), resposta(201)]
+        espelho = sincronizar_espelho.Banco(cliente, ESPELHO, "chave", "Audit")
+        with mock.patch.object(sincronizar_espelho.time, "sleep"):
+            espelho.upsert("categorias_omie", ("codigo", "empresa_cnpj"), [{"codigo": "1"}])
+        self.assertEqual(cliente.request.call_count, 2)
+        for chamada in cliente.request.call_args_list:
+            self.assertEqual(chamada.args[0], "POST")
+            self.assertEqual(chamada.kwargs["params"], {"on_conflict": "codigo,empresa_cnpj"})
+            self.assertIn("resolution=merge-duplicates", chamada.kwargs["headers"]["Prefer"])
 
     def test_todas_as_tabelas_da_checagem_estao_na_sincronizacao(self):
         import checar_saude

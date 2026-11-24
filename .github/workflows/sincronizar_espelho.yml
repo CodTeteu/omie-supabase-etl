@@ -1,8 +1,6 @@
 name: Sincronizar Espelho (banco da Audit)
 
-# Copia o banco principal inteiro para o espelho da Audit (projeto omie-supabase-etl da
-# organizacao audit.tec). Use na primeira carga e quando a checagem do fim da rotina apontar
-# diferenca entre os dois bancos. Ver sincronizar_espelho.py e espelho.py.
+# Reconciliacao por chave e conteudo como recuperacao de cargas parciais.
 
 on:
   workflow_dispatch:
@@ -35,10 +33,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Copiando o principal para o espelho
+      - name: Reconciliando o principal com o espelho
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_URL_ESPELHO: ${{ secrets.SUPABASE_URL_ESPELHO }}
           SUPABASE_KEY_ESPELHO: ${{ secrets.SUPABASE_KEY_ESPELHO }}
-        run: python -u sincronizar_espelho.py ${{ inputs.tabelas }}
+          TABELAS_OMIE: ${{ inputs.tabelas }}
+        run: |
+          read -r -a tabelas <<< "$TABELAS_OMIE"
+          python -u sincronizar_espelho.py "${tabelas[@]}"
